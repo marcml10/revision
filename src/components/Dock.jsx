@@ -1,6 +1,6 @@
 import { BarChart3, BookOpen, CalendarDays, Home, Settings2 } from 'lucide-react'
 
-function Dock({ color = 'black', active = 'home', onNavigate }) {
+function Dock({ color = '#ffffff', active = 'home', onNavigate }) {
   const items = [
     { id: 'home', label: 'Home', icon: Home },
     { id: 'library', label: 'Library', icon: BookOpen },

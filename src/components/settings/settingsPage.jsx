@@ -1,22 +1,11 @@
-import { Bell, Check, Clock3, Gauge, Palette, RotateCcw, Settings2, Sparkles } from 'lucide-react'
+import { Bell, Clock3, Gauge, RotateCcw, Settings2, Sparkles } from 'lucide-react'
 
-const colors = [
-  { value: '#ffffff', label: 'Cloud' },
-  { value: '#e7f0f7', label: 'Mist' },
-  { value: '#e7f2eb', label: 'Sage' },
-  { value: '#eee9f7', label: 'Lavender' },
-  { value: '#f9e9e5', label: 'Blush' },
-]
 const weeklyGoals = [3, 5, 7]
 
 function SettingsPage({ settings, onChange, onReset }) {
   return (
     <section className="page-section settings-page">
       <div className="settings-heading"><div className="page-title-icon"><Settings2 size={18} /></div><div><h1>Settings</h1><p>Make revision feel like yours.</p></div></div>
-      <div className="settings-group">
-        <div className="settings-label"><Palette size={18} /><div><strong>Dock colour</strong><span>Choose the tone for your navigation.</span></div></div>
-        <div className="colour-picker">{colors.map((color) => <button key={color.value} className={settings.dockColor === color.value ? 'selected' : ''} aria-label={`Use ${color.label} dock`} aria-pressed={settings.dockColor === color.value} onClick={() => onChange({ dockColor: color.value })} style={{ backgroundColor: color.value }}><Check size={15} /></button>)}</div>
-      </div>
       <div className="settings-group">
         <div className="settings-label"><Bell size={18} /><div><strong>Daily reminders</strong><span>Keep a gentle prompt on your review days.</span></div></div>
         <div className="settings-control-row">
