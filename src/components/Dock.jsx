@@ -1,6 +1,6 @@
 import { BarChart3, BookOpen, CalendarDays, Home, Settings2 } from 'lucide-react'
 
-function Dock({ color = '#ffffff', active = 'home', onNavigate }) {
+function Dock({ color = '#ffffff', active = 'home', onNavigate, hidden = false }) {
   const items = [
     { id: 'home', label: 'Home', icon: Home },
     { id: 'library', label: 'Library', icon: BookOpen },
@@ -10,7 +10,7 @@ function Dock({ color = '#ffffff', active = 'home', onNavigate }) {
   ]
 
   return (
-    <nav className="bottom-dock" style={{ backgroundColor: color }} aria-label="Primary navigation">
+    <nav className={`bottom-dock ${hidden ? 'dock-hidden' : ''}`} style={{ backgroundColor: color }} aria-label="Primary navigation" inert={hidden || undefined}>
       {items.map(({ id, label, icon: Icon }) => (
         <button
           key={id}

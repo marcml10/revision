@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import rough from 'roughjs'
 import {
   ArrowUpRight,
   Bookmark,
@@ -9,6 +10,8 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   Circle,
   CirclePlus,
   Clock,
@@ -20,6 +23,7 @@ import {
   MousePointer2,
   Pencil,
   PenLine,
+  Plus,
   Redo2,
   RotateCcw,
   Search,
@@ -286,6 +290,19 @@ function App() {
     window.localStorage.setItem('revision-settings', JSON.stringify(settings))
   }, [settings])
 
+  /* Some in-app browsers expose a fixed-position viewport taller than the visible
+     area; anchor the dock and sheets to the real visible height instead. */
+  useEffect(() => {
+    const setAppH = () => document.documentElement.style.setProperty('--app-h', `${document.documentElement.clientHeight}px`)
+    setAppH()
+    window.addEventListener('resize', setAppH)
+    window.visualViewport?.addEventListener('resize', setAppH)
+    return () => {
+      window.removeEventListener('resize', setAppH)
+      window.visualViewport?.removeEventListener('resize', setAppH)
+    }
+  }, [])
+
   useEffect(() => {
     window.localStorage.setItem('revision-schedules', JSON.stringify(schedules))
   }, [schedules])
@@ -519,9 +536,10 @@ function App() {
 
   const scheduleTopic = allTopics.find((topic) => topic.id === scheduleTopicId)
   const addTopicBook = addSheet?.type === 'topic' ? books.find((book) => book.id === addSheet.bookId) : null
+  const dockHidden = view === 'library' && openTopicId !== null
 
   return (
-    <div className={`app-shell ${settings.compactMode ? 'compact-mode' : ''} ${settings.reducedMotion ? 'reduced-motion' : ''}`}>
+    <div className={`app-shell ${settings.compactMode ? 'compact-mode' : ''} ${settings.reducedMotion ? 'reduced-motion' : ''} ${dockHidden ? 'dock-free' : ''}`}>
       <main className="app-content">
         {view === 'settings' ? (
           <SettingsPage settings={settings} onChange={updateSettings} onReset={resetSettings} />
@@ -572,7 +590,7 @@ function App() {
           />
         )}
       </main>
-      <Dock active={view} onNavigate={setView} />
+      <Dock active={view} onNavigate={setView} hidden={dockHidden} />
       {scheduleTopic && (
         <ScheduleSheet
           topic={scheduleTopic}
@@ -805,7 +823,6 @@ function LibraryPage({ books, allTopics, query, onQueryChange, openBookId, openT
         topic={openTopic}
         book={openBook}
         entry={checklists[openTopic.id]}
-        schedule={schedules[openTopic.id]}
         canvas={canvases[openTopic.id]}
         onSetCanvas={(updater) => onSetCanvas(openTopic.id, updater)}
         onBack={() => onOpenTopic(null)}
@@ -1169,7 +1186,7 @@ function HomePage({ topics, onSeeAll, schedules, checklists, onSchedule, onEditT
   )
 }
 
-function TopicPage({ topic, book, entry, schedule, canvas, onSetCanvas, onBack, onAddItem, onToggleItem, onDeleteItem, onSetNote }) {
+function TopicPage({ topic, book, entry, canvas, onSetCanvas, onBack, onAddItem, onToggleItem, onDeleteItem, onSetNote }) {
   const [draft, setDraft] = useState('')
   const [space, setSpace] = useState('board')
   const items = entry?.items ?? []
@@ -1183,20 +1200,12 @@ function TopicPage({ topic, book, entry, schedule, canvas, onSetCanvas, onBack, 
   }
   return (
     <section className="page-section topic-page">
-      <button className="back-button" onClick={onBack}><ChevronLeft size={15} /> {book.title}</button>
-
-      <div className="topic-hero">
-        <span className={`topic-dot big ${book.accent}`}><Layers3 size={18} /></span>
-        <div className="topic-hero-copy">
-          <span className="book-hero-eyebrow">{book.title} · {topic.chapter}</span>
-          <h2>{topic.title}</h2>
-          <small>{dueLabel(topic, schedule)}</small>
+      <div className="topic-header">
+        <button className="back-button" onClick={onBack}><ChevronLeft size={15} /> {book.title}</button>
+        <div className="space-toggle" role="tablist" aria-label="Topic spaces">
+          <button role="tab" aria-selected={space === 'notes'} className={space === 'notes' ? 'active' : ''} onClick={() => setSpace('notes')}>Notes</button>
+          <button role="tab" aria-selected={space === 'board'} className={space === 'board' ? 'active' : ''} onClick={() => setSpace('board')}>Board</button>
         </div>
-      </div>
-
-      <div className="space-toggle" role="tablist" aria-label="Topic spaces">
-        <button role="tab" aria-selected={space === 'board'} className={space === 'board' ? 'active' : ''} onClick={() => setSpace('board')}>Board</button>
-        <button role="tab" aria-selected={space === 'notes'} className={space === 'notes' ? 'active' : ''} onClick={() => setSpace('notes')}>Notes</button>
       </div>
 
       {space === 'board' ? (
@@ -1243,9 +1252,16 @@ function TopicPage({ topic, book, entry, schedule, canvas, onSetCanvas, onBack, 
 const NODE_W = 132
 const NODE_H = 44
 const INK = '#1d2633'
+const SHAPE_FONT_PX = 15
+const SHAPE_PAD_X = 14
+const SHAPE_PAD_Y = 9
+const SHAPE_MIN_W = 60
+const SHAPE_MIN_H = 34
+
+const makeElementId = (prefix) => `${prefix}-${Date.now()}`
+const TEXT_SIZES = [12, 15, 19, 24, 30, 38, 48, 60]
 const BOARD_COLORS = ['#1d2633', '#d96855', '#4d88aa', '#bb8b3d', '#8265b3', '#98a3af']
-const BOARD_WIDTHS = [1.5, 3, 5]
-const FONT_BY_WIDTH = { 1.5: 13, 3: 15, 5: 19 }
+const BOARD_FILLS = ['#f9ddd5', '#d8e8f2', '#f6ecd4', '#e6ddf5', '#dcf0e4', '#eceff2']
 const ZOOM_MIN = 0.25
 const ZOOM_MAX = 4
 const clampZoom = (value) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, value))
@@ -1265,8 +1281,8 @@ const BOARD_TOOLS = [
 function normalizeCanvas(canvas) {
   return {
     texts: (canvas.texts ?? []).map((t) => ({ ...t, color: t.color ?? INK, fontSize: t.fontSize ?? 15 })),
-    strokes: (canvas.strokes ?? []).map((s) => ({ ...s, color: s.color ?? INK, width: s.width ?? 2.5 })),
-    shapes: (canvas.shapes ?? []).map((s) => ({ ...s })),
+    strokes: (canvas.strokes ?? []).map((s) => ({ ...s, color: s.color ?? INK, width: 2 })),
+    shapes: (canvas.shapes ?? []).map((s) => ({ ...s, width: 2 })),
     nodes: (canvas.nodes ?? []).map((n) => ({ ...n })),
     edges: (canvas.edges ?? []).map((e) => ({ ...e })),
   }
@@ -1280,13 +1296,65 @@ function normRect(shape) {
   return { x: Math.min(shape.x, shape.x + shape.w), y: Math.min(shape.y, shape.y + shape.h), w: Math.abs(shape.w), h: Math.abs(shape.h) }
 }
 
-function arrowHeadPath(x1, y1, x2, y2, width) {
+function arrowHeadPoints(x1, y1, x2, y2, width) {
   const angle = Math.atan2(y2 - y1, x2 - x1)
   const len = 9 + width * 2
   const spread = 0.42
-  const a1 = [x2 - len * Math.cos(angle - spread), y2 - len * Math.sin(angle - spread)]
-  const a2 = [x2 - len * Math.cos(angle + spread), y2 - len * Math.sin(angle + spread)]
-  return `M ${a1[0]} ${a1[1]} L ${x2} ${y2} L ${a2[0]} ${a2[1]}`
+  return [
+    [x2 - len * Math.cos(angle - spread), y2 - len * Math.sin(angle - spread)],
+    [x2, y2],
+    [x2 - len * Math.cos(angle + spread), y2 - len * Math.sin(angle + spread)],
+  ]
+}
+
+function seedFromId(id) {
+  let h = 0
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0
+  return Math.abs(h) || 1
+}
+
+/* Rebuilds the sketchy render layer from plain geometry. Rough.js draws every
+   rectangle/ellipse/line/connector as hand-drawn strokes with a stable seed per
+   element, so each object keeps its own natural variation across re-renders. */
+function buildRoughLayer(layer, svgEl, board, draftShape) {
+  while (layer.firstChild) layer.removeChild(layer.firstChild)
+  const rc = rough.svg(svgEl)
+  const base = { roughness: 1, bowing: 1 }
+
+  board.edges.forEach((edge) => {
+    const a = board.nodes.find((n) => n.id === edge.from)
+    const b = board.nodes.find((n) => n.id === edge.to)
+    if (!a || !b) return
+    layer.appendChild(rc.line(a.x + NODE_W / 2, a.y + NODE_H / 2, b.x + NODE_W / 2, b.y + NODE_H / 2, { ...base, stroke: '#b8c6d1', strokeWidth: 2, seed: seedFromId(edge.id) }))
+  })
+
+  const drawShape = (shape) => {
+    const o = {
+      ...base,
+      stroke: shape.color,
+      strokeWidth: shape.width,
+      seed: seedFromId(shape.id),
+      ...(shape.fill && shape.fill !== 'none' ? { fill: shape.fill, fillStyle: 'solid' } : {}),
+    }
+    if (shape.type === 'rect') {
+      const b = normRect(shape)
+      layer.appendChild(rc.rectangle(b.x, b.y, Math.max(b.w, 2), Math.max(b.h, 2), o))
+    } else if (shape.type === 'ellipse') {
+      const b = normRect(shape)
+      layer.appendChild(rc.ellipse(b.x + b.w / 2, b.y + b.h / 2, Math.max(b.w, 4), Math.max(b.h, 4), o))
+    } else if (shape.type === 'line') {
+      layer.appendChild(rc.line(shape.x, shape.y, shape.x + shape.w, shape.y + shape.h, o))
+    } else {
+      layer.appendChild(rc.line(shape.x, shape.y, shape.x + shape.w, shape.y + shape.h, o))
+      layer.appendChild(rc.linearPath(arrowHeadPoints(shape.x, shape.y, shape.x + shape.w, shape.y + shape.h, shape.width), { ...base, stroke: shape.color, strokeWidth: shape.width, seed: seedFromId(shape.id) + 13 }))
+    }
+  }
+  board.shapes.forEach(drawShape)
+  if (draftShape) drawShape({ ...draftShape, id: 'draft' })
+
+  board.nodes.forEach((n) => {
+    layer.appendChild(rc.rectangle(n.x, n.y, NODE_W, NODE_H, { ...base, stroke: '#a9b8c4', strokeWidth: 1.5, fill: '#ffffff', fillStyle: 'solid', seed: seedFromId(n.id) }))
+  })
 }
 
 function distToSegment(p, a, b) {
@@ -1303,7 +1371,7 @@ function textBounds(text) {
   return {
     x: text.x,
     y: text.y - 4,
-    w: Math.min(280, Math.max(24, firstLine.length * text.fontSize * 0.62)),
+    w: Math.max(24, firstLine.length * text.fontSize * 0.55),
     h: text.fontSize * 1.4 + 8,
   }
 }
@@ -1357,34 +1425,6 @@ function hitTest(canvas, p, tolerance = 7) {
   return null
 }
 
-function ShapeNode({ shape }) {
-  const paint = {
-    stroke: shape.color,
-    strokeWidth: shape.width,
-    fill: shape.fill && shape.fill !== 'none' ? shape.fill : 'none',
-    strokeLinecap: 'round',
-    strokeLinejoin: 'round',
-    filter: shape.rough ? 'url(#board-rough)' : undefined,
-  }
-  if (shape.type === 'rect') {
-    const b = normRect(shape)
-    return <rect x={b.x} y={b.y} width={b.w} height={b.h} rx={5} {...paint} />
-  }
-  if (shape.type === 'ellipse') {
-    const b = normRect(shape)
-    return <ellipse cx={b.x + b.w / 2} cy={b.y + b.h / 2} rx={Math.max(b.w / 2, 1)} ry={Math.max(b.h / 2, 1)} {...paint} />
-  }
-  if (shape.type === 'line') {
-    return <line x1={shape.x} y1={shape.y} x2={shape.x + shape.w} y2={shape.y + shape.h} {...paint} />
-  }
-  return (
-    <g>
-      <line x1={shape.x} y1={shape.y} x2={shape.x + shape.w} y2={shape.y + shape.h} {...paint} />
-      <path d={arrowHeadPath(shape.x, shape.y, shape.x + shape.w, shape.y + shape.h, shape.width)} fill={shape.color} stroke="none" />
-    </g>
-  )
-}
-
 function SelectionOutline({ shape, scale }) {
   const base = shape.type === 'line' || shape.type === 'arrow'
     ? { x: Math.min(shape.x, shape.x + shape.w), y: Math.min(shape.y, shape.y + shape.h), w: Math.abs(shape.w), h: Math.abs(shape.h) }
@@ -1403,12 +1443,17 @@ function SelectionOutline({ shape, scale }) {
 function TopicBoard({ canvas: rawCanvas, onChange }) {
   const canvas = useMemo(() => normalizeCanvas(rawCanvas ?? { texts: [], strokes: [], shapes: [], nodes: [], edges: [] }), [rawCanvas])
   const surfaceRef = useRef(null)
+  const svgRef = useRef(null)
+  const roughLayerRef = useRef(null)
   const [tool, setTool] = useState('select')
+  const [toolsPacked, setToolsPacked] = useState(false)
+  const [canvasTouched, setCanvasTouched] = useState(false)
   const [view, setView] = useState({ x: 0, y: 0, s: 1 })
   const [selection, setSelection] = useState(null)
-  const [defaults, setDefaults] = useState({ color: INK, fill: 'none', width: 3, rough: false })
+  const [defaults, setDefaults] = useState({ color: INK, fill: 'none', width: 2, fontSize: 15 })
   const [textDraft, setTextDraft] = useState(null)
   const [nodeDraft, setNodeDraft] = useState(null)
+  const [shapeDraft, setShapeDraft] = useState(null)
   const [liveStroke, setLiveStroke] = useState(null)
   const [draftShape, setDraftShape] = useState(null)
   const [spaceHeld, setSpaceHeld] = useState(false)
@@ -1420,6 +1465,7 @@ function TopicBoard({ canvas: rawCanvas, onChange }) {
   const gestureRef = useRef(null)
   const strokeRef = useRef(null)
   const draftRef = useRef(null)
+  const measureRef = useRef(null)
   const pointersRef = useRef(new Map())
   const pinchRef = useRef(null)
   const cancelRef = useRef(false)
@@ -1429,6 +1475,11 @@ function TopicBoard({ canvas: rawCanvas, onChange }) {
   selectionRef.current = selection
   defaultsRef.current = defaults
   viewRef.current = view
+
+  useLayoutEffect(() => {
+    if (roughLayerRef.current && svgRef.current) buildRoughLayer(roughLayerRef.current, svgRef.current, canvas, draftShape)
+    // draftShape included so the in-progress shape is drawn sketchy as well
+  }, [canvas, draftShape])
 
   useEffect(() => {
     historyRef.current = { stack: [JSON.stringify(normalizeCanvas(canvas))], index: 0 }
@@ -1564,6 +1615,7 @@ function TopicBoard({ canvas: rawCanvas, onChange }) {
 
   const onPointerDown = (event) => {
     if (event.target.closest('[data-ui]') || event.target.closest('input')) return
+    setCanvasTouched(true)
     pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
     if (pointersRef.current.size === 2) {
       const [a, b] = [...pointersRef.current.values()]
@@ -1606,8 +1658,9 @@ function TopicBoard({ canvas: rawCanvas, onChange }) {
     }
     if (tool === 'text') {
       setSelection(null)
-      cancelRef.current = false
-      setTextDraft({ x: p.x, y: p.y, value: '' })
+      /* Defer the input to pointer-up: mounting it during the press lets the
+         mousedown default action steal its focus straight away. */
+      gestureRef.current = { kind: 'text-place', at: p }
       return
     }
     if (tool === 'eraser') {
@@ -1690,13 +1743,20 @@ function TopicBoard({ canvas: rawCanvas, onChange }) {
     const gesture = gestureRef.current
     if (!gesture) return
     gestureRef.current = null
+    if (gesture.kind === 'text-place') {
+      if (event.type !== 'pointercancel') {
+        cancelRef.current = false
+        setTextDraft({ x: gesture.at.x, y: gesture.at.y, value: '', width: measureLineWidth('', defaultsRef.current.fontSize) + 6, fontSize: defaultsRef.current.fontSize, color: defaultsRef.current.color })
+      }
+      return
+    }
     if (gesture.kind === 'pan') { setPanning(false); return }
     if (gesture.kind === 'draw-stroke') {
       const points = strokeRef.current ?? []
       strokeRef.current = null
       setLiveStroke(null)
       if (points.length > 1) {
-        commit((c) => { c.strokes.push({ id: `st-${Date.now()}`, points, color: defaultsRef.current.color, width: defaultsRef.current.width, rough: defaultsRef.current.rough }) })
+        commit((c) => { c.strokes.push({ id: `st-${Date.now()}`, points, color: defaultsRef.current.color, width: defaultsRef.current.width }) })
       }
       return
     }
@@ -1708,11 +1768,16 @@ function TopicBoard({ canvas: rawCanvas, onChange }) {
         const isLine = draft.type === 'line' || draft.type === 'arrow'
         const meaningful = isLine ? Math.hypot(draft.w, draft.h) > 4 : Math.abs(draft.w) > 4 && Math.abs(draft.h) > 4
         if (meaningful) {
-          commit((c) => {
-            c.shapes.push(isLine
-              ? { ...draft, id: `sh-${Date.now()}` }
-              : { ...draft, x: Math.min(draft.x, draft.x + draft.w), y: Math.min(draft.y, draft.y + draft.h), w: Math.abs(draft.w), h: Math.abs(draft.h), id: `sh-${Date.now()}` })
-          })
+          const id = makeElementId('sh')
+          const shape = isLine
+            ? { ...draft, id }
+            : { ...draft, x: Math.min(draft.x, draft.x + draft.w), y: Math.min(draft.y, draft.y + draft.h), w: Math.abs(draft.w), h: Math.abs(draft.h), id }
+          commit((c) => { c.shapes.push(shape) })
+          /* Closed shapes go straight into label editing; the shape hugs the text as it is typed. */
+          if (!isLine) {
+            cancelRef.current = false
+            setShapeDraft({ id, value: '', isNew: true, orig: { x: shape.x, y: shape.y, w: shape.w, h: shape.h }, origLabel: '' })
+          }
         }
       }
       return
@@ -1758,8 +1823,16 @@ function TopicBoard({ canvas: rawCanvas, onChange }) {
     if (event.target.closest('[data-ui]') || event.target.closest('input')) return
     const hit = hitTest(canvas, toWorld(event))
     if (!hit) return
-    if (hit.kind === 'text') { cancelRef.current = false; setTextDraft({ id: hit.id, x: hit.x, y: hit.y, value: hit.text }) }
+    if (hit.kind === 'text') {
+      cancelRef.current = false
+      const fontSize = hit.fontSize ?? 15
+      setTextDraft({ id: hit.id, x: hit.x, y: hit.y, value: hit.text, width: measureLineWidth(hit.text, fontSize) + 6, fontSize, color: hit.color ?? INK })
+    }
     if (hit.kind === 'node') { cancelRef.current = false; setNodeDraft({ id: hit.id, value: hit.label, isNew: false }) }
+    if (hit.kind === 'shape' && (hit.type === 'rect' || hit.type === 'ellipse')) {
+      cancelRef.current = false
+      setShapeDraft({ id: hit.id, value: hit.label ?? '', isNew: false, orig: { x: hit.x, y: hit.y, w: hit.w, h: hit.h }, origLabel: hit.label ?? '' })
+    }
   }
 
   const commitText = () => {
@@ -1774,7 +1847,7 @@ function TopicBoard({ canvas: rawCanvas, onChange }) {
     if (value) {
       commit((c) => {
         if (draft.id) c.texts = c.texts.map((t) => t.id === draft.id ? { ...t, text: draft.value } : t)
-        else c.texts.push({ id: `tx-${Date.now()}`, x: draft.x, y: draft.y, text: draft.value, color: defaultsRef.current.color, fontSize: FONT_BY_WIDTH[defaultsRef.current.width] ?? 15 })
+        else c.texts.push({ id: makeElementId('tx'), x: draft.x, y: draft.y, text: draft.value, color: draft.color, fontSize: draft.fontSize })
       })
     } else if (draft.id) {
       commit((c) => { c.texts = c.texts.filter((t) => t.id !== draft.id) })
@@ -1799,14 +1872,104 @@ function TopicBoard({ canvas: rawCanvas, onChange }) {
     setNodeDraft(null)
   }
 
+  /* Single-line width, used by the standalone text input so the box follows the typed text. */
+  const measureLineWidth = (value, fontSize) => {
+    const el = measureRef.current
+    if (!el) return 0
+    el.style.whiteSpace = 'pre'
+    el.style.width = ''
+    el.style.fontSize = `${fontSize}px`
+    el.textContent = value || ' '
+    return el.offsetWidth
+  }
+
+  /* Longest unbreakable word plus the height of the text wrapped at columnWidth. */
+  const measureTextLayout = (value, columnWidth, fontSize = SHAPE_FONT_PX) => {
+    const el = measureRef.current
+    if (!el) return { wordW: 0, wrappedH: fontSize * 1.3 }
+    const words = value.split(/\s+/).filter(Boolean)
+    el.style.whiteSpace = 'pre'
+    el.style.width = ''
+    el.style.fontSize = `${fontSize}px`
+    el.textContent = words.reduce((longest, word) => (word.length > longest.length ? word : longest), ' ')
+    const wordW = el.offsetWidth
+    el.style.whiteSpace = 'normal'
+    el.style.width = `${Math.max(10, Math.round(columnWidth))}px`
+    el.textContent = value || ' '
+    const wrappedH = el.offsetHeight
+    el.style.whiteSpace = ''
+    el.style.width = ''
+    return { wordW, wrappedH }
+  }
+
+  const shapeTextColumn = (shape) => Math.max(30, (shape.type === 'ellipse' ? shape.w / Math.SQRT2 : shape.w) - SHAPE_PAD_X * 2)
+
+  /* The drawn size is the floor: text wraps inside it and the shape only grows
+     once the wrapped text no longer fits. Rects stretch taller; ellipses scale
+     width and height by the same factor so they stay round. */
+  const fitShapeToText = (shape, value) => {
+    const colW = shapeTextColumn(shape)
+    const { wordW, wrappedH } = measureTextLayout(value, colW)
+    const cx = shape.x + shape.w / 2
+    const cy = shape.y + shape.h / 2
+    let w
+    let h
+    if (shape.type === 'ellipse') {
+      /* Text lives in the inscribed rectangle, so the bounding box needs √2× it. */
+      const wReq = Math.max(SHAPE_MIN_W, (wordW + SHAPE_PAD_X * 2) * Math.SQRT2)
+      const hReq = Math.max(SHAPE_MIN_H, (wrappedH + SHAPE_PAD_Y * 2) * Math.SQRT2)
+      const scale = Math.max(wReq / shape.w, hReq / shape.h, 1)
+      w = shape.w * scale
+      h = shape.h * scale
+    } else {
+      w = Math.max(shape.w, SHAPE_MIN_W, wordW + SHAPE_PAD_X * 2)
+      h = Math.max(shape.h, SHAPE_MIN_H, wrappedH + SHAPE_PAD_Y * 2)
+    }
+    return { shape: { ...shape, x: cx - w / 2, y: cy - h / 2, w, h }, colW, textH: wrappedH }
+  }
+
+  const resizeShapeToText = (id, value) => {
+    let layout = null
+    commit((c) => {
+      c.shapes = c.shapes.map((s) => {
+        if (s.id !== id) return s
+        const result = fitShapeToText(s, value)
+        layout = { colW: result.colW, textH: result.textH }
+        return result.shape
+      })
+    }, { history: false })
+    return layout
+  }
+
+  const commitShapeLabel = () => {
+    const draft = shapeDraft
+    if (!draft) return
+    const cancelled = cancelRef.current
+    cancelRef.current = false
+    if (cancelled) {
+      commit((c) => {
+        c.shapes = c.shapes.map((s) => s.id === draft.id ? { ...s, ...draft.orig, label: draft.origLabel } : s)
+      }, { history: false })
+    } else {
+      const value = draft.value.trim()
+      commit((c) => {
+        c.shapes = c.shapes.map((s) => {
+          if (s.id !== draft.id) return s
+          return { ...(value ? fitShapeToText(s, value).shape : s), label: value }
+        })
+      })
+    }
+    setShapeDraft(null)
+  }
+
   const applyProp = (prop, value) => {
     setDefaults((current) => ({ ...current, [prop]: value }))
     const sel = selectionRef.current
     if (!sel) return
     commit((c) => {
-      if (sel.kind === 'text') c.texts = c.texts.map((t) => t.id === sel.id ? { ...t, color: prop === 'color' ? value : t.color, fontSize: prop === 'width' ? (FONT_BY_WIDTH[value] ?? t.fontSize) : t.fontSize } : t)
-      else if (sel.kind === 'stroke') c.strokes = c.strokes.map((s) => s.id === sel.id ? { ...s, color: prop === 'color' ? value : s.color, width: prop === 'width' ? value : s.width, rough: prop === 'rough' ? value : s.rough } : s)
-      else if (sel.kind === 'shape') c.shapes = c.shapes.map((s) => s.id === sel.id ? { ...s, color: prop === 'color' ? value : s.color, fill: prop === 'fill' ? value : s.fill, width: prop === 'width' ? value : s.width, rough: prop === 'rough' ? value : s.rough } : s)
+      if (sel.kind === 'text') c.texts = c.texts.map((t) => t.id === sel.id ? (prop === 'color' || prop === 'fontSize' ? { ...t, [prop]: value } : t) : t)
+      else if (sel.kind === 'stroke') c.strokes = c.strokes.map((s) => s.id === sel.id ? { ...s, color: prop === 'color' ? value : s.color } : s)
+      else if (sel.kind === 'shape') c.shapes = c.shapes.map((s) => s.id === sel.id ? { ...s, color: prop === 'color' ? value : s.color, fill: prop === 'fill' ? value : s.fill } : s)
     })
   }
 
@@ -1815,6 +1978,7 @@ function TopicBoard({ canvas: rawCanvas, onChange }) {
     setSelection(null)
     setLiveStroke(null)
     setDraftShape(null)
+    setCanvasTouched(false)
     strokeRef.current = null
     draftRef.current = null
     gestureRef.current = null
@@ -1824,6 +1988,15 @@ function TopicBoard({ canvas: rawCanvas, onChange }) {
   const selStroke = selection?.kind === 'stroke' ? canvas.strokes.find((s) => s.id === selection.id) : null
   const selText = selection?.kind === 'text' ? canvas.texts.find((t) => t.id === selection.id) : null
   const selNode = selection?.kind === 'node' ? canvas.nodes.find((n) => n.id === selection.id) : null
+
+  const activeFontSize = selText ? selText.fontSize : defaults.fontSize
+
+  /* Steps through TEXT_SIZES so both buttons and repeated clicks land on the same scale. */
+  const changeTextSize = (delta) => {
+    const index = TEXT_SIZES.reduce((best, size, i) => (Math.abs(size - activeFontSize) < Math.abs(TEXT_SIZES[best] - activeFontSize) ? i : best), 0)
+    const next = TEXT_SIZES[Math.min(TEXT_SIZES.length - 1, Math.max(0, index + delta))]
+    if (next !== activeFontSize) applyProp('fontSize', next)
+  }
 
   const handles = []
   if (selShape) {
@@ -1840,44 +2013,59 @@ function TopicBoard({ canvas: rawCanvas, onChange }) {
     }
   }
 
-  const showProps = tool !== 'eraser' && (selection !== null || ['pen', 'rect', 'ellipse', 'arrow', 'line', 'text', 'mind'].includes(tool))
+  /* Colour dock: offered when a drawing tool is fresh so defaults can be set,
+     but it disappears the moment the canvas is actually used — it only
+     reappears to edit the colours of a selected element. */
+  const showProps = !toolsPacked && tool !== 'eraser' && (selection !== null || (['pen', 'rect', 'ellipse', 'arrow', 'line', 'text', 'mind'].includes(tool) && !canvasTouched))
   const activeFill = selShape ? selShape.fill : selText || selNode ? undefined : defaults.fill
   const activeColor = selShape ? selShape.color : selStroke ? selStroke.color : selText ? selText.color : selNode ? undefined : defaults.color
-  const activeWidth = selShape ? selShape.width : selStroke ? selStroke.width : selText ? Object.entries(FONT_BY_WIDTH).find(([, size]) => size === selText.fontSize)?.[0] : selNode ? undefined : defaults.width
-  const activeRough = selShape ? Boolean(selShape.rough) : selStroke ? Boolean(selStroke.rough) : defaults.rough
+  /* Fill applies only to the closed shapes; strokes, text, arrows and lines are stroke-only. */
+  const fillApplies = tool === 'rect' || tool === 'ellipse' || Boolean(selShape && (selShape.type === 'rect' || selShape.type === 'ellipse'))
 
   return (
     <div className="board-wrap">
-      <div className="board-toolbar" data-ui>
-        {BOARD_TOOLS.map(({ id, label, icon: Icon }) => (
-          <button key={id} className={`board-tool ${tool === id ? 'active' : ''}`} onClick={() => switchTool(id)} aria-label={label} aria-pressed={tool === id} title={label}>
-            <Icon size={15} />
+      <div className={`board-toolbar ${toolsPacked ? 'packed' : ''}`} data-ui>
+        {toolsPacked ? (
+          <button className="board-tool" onClick={() => setToolsPacked(false)} aria-label="Show tools" title="Show tools">
+            <ChevronsRight size={15} />
           </button>
-        ))}
-        <span className="board-sep" />
-        <button className="board-tool" onClick={undo} disabled={!canUndo} aria-label="Undo" title="Undo (Ctrl+Z)"><Undo2 size={15} /></button>
-        <button className="board-tool" onClick={redo} disabled={!canRedo} aria-label="Redo" title="Redo (Ctrl+Y)"><Redo2 size={15} /></button>
-        <span className="board-sep" />
-        <button
-          className="board-tool"
-          onClick={() => {
-            if (!window.confirm('Clear everything on this board?')) return
-            commit((c) => {
-              c.texts = []
-              c.strokes = []
-              c.shapes = []
-              c.nodes = []
-              c.edges = []
-            })
-            setSelection(null)
-            setTextDraft(null)
-            setNodeDraft(null)
-          }}
-          aria-label="Clear board"
-          title="Clear board"
-        >
-          <Trash2 size={15} />
-        </button>
+        ) : (
+          <>
+            {BOARD_TOOLS.map(({ id, label, icon: Icon }) => (
+              <button key={id} className={`board-tool ${tool === id ? 'active' : ''}`} onClick={() => switchTool(id)} aria-label={label} aria-pressed={tool === id} title={label}>
+                <Icon size={15} />
+              </button>
+            ))}
+            <span className="board-sep" />
+            <button className="board-tool" onClick={undo} disabled={!canUndo} aria-label="Undo" title="Undo (Ctrl+Z)"><Undo2 size={15} /></button>
+            <button className="board-tool" onClick={redo} disabled={!canRedo} aria-label="Redo" title="Redo (Ctrl+Y)"><Redo2 size={15} /></button>
+            <span className="board-sep" />
+            <button
+              className="board-tool"
+              onClick={() => {
+                if (!window.confirm('Clear everything on this board?')) return
+                commit((c) => {
+                  c.texts = []
+                  c.strokes = []
+                  c.shapes = []
+                  c.nodes = []
+                  c.edges = []
+                })
+                setSelection(null)
+                setTextDraft(null)
+                setNodeDraft(null)
+                setShapeDraft(null)
+              }}
+              aria-label="Clear board"
+              title="Clear board"
+            >
+              <Trash2 size={15} />
+            </button>
+            <button className="board-tool" onClick={() => setToolsPacked(true)} aria-label="Hide tools" title="Hide tools">
+              <ChevronsLeft size={15} />
+            </button>
+          </>
+        )}
       </div>
 
       {showProps && (
@@ -1890,34 +2078,27 @@ function TopicBoard({ canvas: rawCanvas, onChange }) {
               ))}
             </div>
           </div>
-          <div className="board-prop">
-            <span>Fill</span>
-            <div className="board-swatches">
-              <button className={`board-swatch fill-none ${activeFill === 'none' ? 'active' : ''}`} onClick={() => applyProp('fill', 'none')} aria-label="No fill" title="No fill" />
-              {BOARD_COLORS.map((color) => (
-                <button key={color} className={`board-swatch ${activeFill === color ? 'active' : ''}`} style={{ background: color }} onClick={() => applyProp('fill', color)} aria-label={`Fill ${color}`} title={color} />
-              ))}
-              {BOARD_COLORS.map((color) => (
-                <button key={`${color}-soft`} className={`board-swatch ${activeFill === `${color}59` ? 'active' : ''}`} style={{ background: `${color}59` }} onClick={() => applyProp('fill', `${color}59`)} aria-label={`Translucent ${color}`} title={`Translucent ${color}`} />
-              ))}
+          {fillApplies && (
+            <div className="board-prop">
+              <span>Fill</span>
+              <div className="board-swatches">
+                <button className={`board-swatch fill-none ${activeFill === 'none' ? 'active' : ''}`} onClick={() => applyProp('fill', 'none')} aria-label="No fill" title="No fill" />
+                {BOARD_FILLS.map((color) => (
+                  <button key={color} className={`board-swatch ${activeFill === color ? 'active' : ''}`} style={{ background: color }} onClick={() => applyProp('fill', color)} aria-label={`Fill ${color}`} title={color} />
+                ))}
+              </div>
             </div>
-          </div>
-          <div className="board-prop">
-            <span>Width</span>
-            <div className="board-widths">
-              {BOARD_WIDTHS.map((width) => (
-                <button key={width} className={Number(activeWidth) === width ? 'active' : ''} onClick={() => applyProp('width', width)} aria-label={`Width ${width}`} title={width === 1.5 ? 'Thin' : width === 3 ? 'Medium' : 'Thick'}>
-                  <i style={{ height: width + 0.5, width: width + 8 }} />
-                </button>
-              ))}
+          )}
+          {(selText || tool === 'text') && (
+            <div className="board-prop">
+              <span>Size</span>
+              <div className="board-size">
+                <button onClick={() => changeTextSize(-1)} aria-label="Decrease text size" title="Smaller text"><Minus size={13} /></button>
+                <strong>{activeFontSize}px</strong>
+                <button onClick={() => changeTextSize(1)} aria-label="Increase text size" title="Bigger text"><Plus size={13} /></button>
+              </div>
             </div>
-          </div>
-          <div className="board-prop">
-            <span>Style</span>
-            <button className={`board-rough-toggle ${activeRough ? 'active' : ''}`} onClick={() => applyProp('rough', !activeRough)} aria-pressed={activeRough} title="Hand-drawn style">
-              <PenLine size={13} /> Rough
-            </button>
-          </div>
+          )}
         </div>
       )}
 
@@ -1931,26 +2112,13 @@ function TopicBoard({ canvas: rawCanvas, onChange }) {
         onDoubleClick={onSurfaceDoubleClick}
       >
         <div className="board-canvas" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.s})` }}>
-          <svg className="board-svg" aria-hidden="true">
-            <defs>
-              <filter id="board-rough" x="-6%" y="-6%" width="112%" height="112%">
-                <feTurbulence type="fractalNoise" baseFrequency="0.015" numOctaves="2" seed="9" result="noise" />
-                <feDisplacementMap in="SourceGraphic" in2="noise" scale="2.6" />
-              </filter>
-            </defs>
-            {canvas.edges.map((edge) => {
-              const from = canvas.nodes.find((n) => n.id === edge.from)
-              const to = canvas.nodes.find((n) => n.id === edge.to)
-              if (!from || !to) return null
-              return <line key={edge.id} className="board-edge" x1={from.x + NODE_W / 2} y1={from.y + NODE_H / 2} x2={to.x + NODE_W / 2} y2={to.y + NODE_H / 2} />
-            })}
-            {canvas.shapes.map((shape) => <ShapeNode key={shape.id} shape={shape} />)}
+          <svg ref={svgRef} className="board-svg" aria-hidden="true">
+            <g ref={roughLayerRef} />
             {selShape && <SelectionOutline shape={selShape} scale={view.s} />}
             {selStroke && <path d={strokesPath(selStroke.points)} fill="none" stroke="rgba(217,104,85,.35)" strokeWidth={selStroke.width + 6} strokeLinecap="round" strokeLinejoin="round" />}
             {canvas.strokes.map((stroke) => (
-              <path key={stroke.id} className="board-stroke" d={strokesPath(stroke.points)} stroke={stroke.color} strokeWidth={stroke.width} filter={stroke.rough ? 'url(#board-rough)' : undefined} />
+              <path key={stroke.id} className="board-stroke" d={strokesPath(stroke.points)} stroke={stroke.color} strokeWidth={stroke.width} />
             ))}
-            {draftShape && <ShapeNode shape={draftShape} />}
             {liveStroke && <path className="board-stroke" d={strokesPath(liveStroke)} stroke={defaultsRef.current.color} strokeWidth={defaultsRef.current.width} />}
           </svg>
 
@@ -1963,6 +2131,51 @@ function TopicBoard({ canvas: rawCanvas, onChange }) {
               {text.text}
             </div>
           ))}
+
+          {canvas.shapes.map((shape) => {
+            if (shapeDraft?.id === shape.id) {
+              const colW = shapeDraft.layout?.colW ?? shapeTextColumn(shape)
+              const textH = shapeDraft.layout?.textH ?? SHAPE_FONT_PX * 1.3
+              return (
+                <textarea
+                  key={shape.id}
+                  className="board-shape-input"
+                  style={{
+                    left: shape.x + (shape.w - colW) / 2,
+                    top: shape.y + (shape.h - textH) / 2,
+                    width: colW,
+                    height: Math.ceil(textH) + 2,
+                    color: shape.color,
+                  }}
+                  value={shapeDraft.value}
+                  autoFocus
+                  rows={1}
+                  onChange={(event) => {
+                    const value = event.target.value
+                    const layout = resizeShapeToText(shape.id, value)
+                    setShapeDraft((current) => (current ? { ...current, value, layout: layout ?? current.layout } : current))
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !event.shiftKey) commitShapeLabel()
+                    if (event.key === 'Escape') { cancelRef.current = true; commitShapeLabel() }
+                  }}
+                  onBlur={commitShapeLabel}
+                  aria-label="Shape label"
+                />
+              )
+            }
+            if (!shape.label || shape.type === 'line' || shape.type === 'arrow') return null
+            const colW = shapeTextColumn(shape)
+            return (
+              <div
+                key={shape.id}
+                className="board-shape-label"
+                style={{ left: shape.x + (shape.w - colW) / 2, top: shape.y, width: colW, height: shape.h, color: shape.color }}
+              >
+                {shape.label}
+              </div>
+            )
+          })}
 
           {canvas.nodes.map((node) => (
             <div
@@ -1992,10 +2205,13 @@ function TopicBoard({ canvas: rawCanvas, onChange }) {
           {textDraft && (
             <input
               className="board-input"
-              style={{ left: textDraft.x, top: textDraft.y, width: `${Math.max(6, textDraft.value.length + 1)}ch`, color: textDraft.id ? undefined : defaultsRef.current.color }}
+              style={{ left: textDraft.x, top: textDraft.y, width: textDraft.width, color: textDraft.color, fontSize: textDraft.fontSize }}
               value={textDraft.value}
               autoFocus
-              onChange={(event) => setTextDraft({ ...textDraft, value: event.target.value })}
+              onChange={(event) => {
+                const value = event.target.value
+                setTextDraft((current) => (current ? { ...current, value, width: measureLineWidth(value, current.fontSize) + 6 } : current))
+              }}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') commitText()
                 if (event.key === 'Escape') { cancelRef.current = true; commitText() }
@@ -2020,6 +2236,8 @@ function TopicBoard({ canvas: rawCanvas, onChange }) {
         <button className="board-zoom-level" onClick={() => setView({ x: 0, y: 0, s: 1 })} title="Reset zoom">{Math.round(view.s * 100)}%</button>
         <button onClick={() => zoomAt(surfaceRef.current.clientWidth / 2, surfaceRef.current.clientHeight / 2, 1.25)} aria-label="Zoom in"><ZoomIn size={14} /></button>
       </div>
+
+      <span ref={measureRef} className="board-shape-measure" aria-hidden="true" />
     </div>
   )
 }
