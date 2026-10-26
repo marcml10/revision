@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ArrowUpRight,
   Bookmark,
@@ -11,15 +11,19 @@ import {
   ChevronRight,
   CirclePlus,
   Clock,
+  Eraser,
   Flame,
   Layers3,
   MoreHorizontal,
+  Pencil,
   PenLine,
   RotateCcw,
   Search,
+  Share2,
   Sparkles,
   Target,
   Trash2,
+  Type,
   X,
 } from 'lucide-react'
 import Dock from './components/Dock.jsx'
@@ -27,12 +31,24 @@ import SettingsPage from './components/settings/settingsPage.jsx'
 import './App.css'
 
 const defaultSettings = {
-  remindersEnabled: true,
   reminderTime: '09:00',
   weeklyGoal: 5,
   compactMode: false,
   reducedMotion: false,
 }
+
+/* App clock: real today, normalised to midnight. */
+const NOW = new Date()
+const APP_TODAY = new Date(NOW.getFullYear(), NOW.getMonth(), NOW.getDate())
+const WEEKDAYS_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const WEEKDAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+
+const toIso = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+const TODAY_ISO = toIso(APP_TODAY)
+const TOMORROW_ISO = toIso(new Date(APP_TODAY.getFullYear(), APP_TODAY.getMonth(), APP_TODAY.getDate() + 1))
+const isoFromToday = (offset) => toIso(new Date(APP_TODAY.getFullYear(), APP_TODAY.getMonth(), APP_TODAY.getDate() + offset))
 
 const seedBooks = [
   {
@@ -41,9 +57,9 @@ const seedBooks = [
     author: 'Alex Banks',
     accent: 'coral',
     topics: [
-      { id: 'react-rsc', title: 'React Server Components', chapter: 'Ch 12', due: 'Today', progress: 72 },
-      { id: 'react-hooks', title: 'Hooks in depth', chapter: 'Ch 7', due: 'Tomorrow', progress: 46 },
-      { id: 'react-state', title: 'State management patterns', chapter: 'Ch 9', due: 'Mon, 1 Jul', progress: 35 },
+      { id: 'react-rsc', title: 'React Server Components', chapter: 'Ch 12', due: TODAY_ISO, progress: 72 },
+      { id: 'react-hooks', title: 'Hooks in depth', chapter: 'Ch 7', due: TOMORROW_ISO, progress: 46 },
+      { id: 'react-state', title: 'State management patterns', chapter: 'Ch 9', due: isoFromToday(4), progress: 35 },
     ],
   },
   {
@@ -52,9 +68,9 @@ const seedBooks = [
     author: 'M. Kleppmann',
     accent: 'blue',
     topics: [
-      { id: 'ddia-replication', title: 'Replication', chapter: 'Ch 5', due: 'Sun, 30 Jun', progress: 58 },
-      { id: 'ddia-partition', title: 'Partitioning', chapter: 'Ch 6', due: 'Wed, 3 Jul', progress: 22 },
-      { id: 'ddia-consensus', title: 'Consensus & fault tolerance', chapter: 'Ch 9', due: 'Fri, 5 Jul', progress: 12 },
+      { id: 'ddia-replication', title: 'Replication', chapter: 'Ch 5', due: isoFromToday(3), progress: 58 },
+      { id: 'ddia-partition', title: 'Partitioning', chapter: 'Ch 6', due: isoFromToday(6), progress: 22 },
+      { id: 'ddia-consensus', title: 'Consensus & fault tolerance', chapter: 'Ch 9', due: isoFromToday(9), progress: 12 },
     ],
   },
   {
@@ -63,8 +79,8 @@ const seedBooks = [
     author: 'Language guide',
     accent: 'yellow',
     topics: [
-      { id: 'es-subjunctive', title: 'Subjunctive mood', chapter: 'Unit 3', due: 'Fri, 28 Jun', progress: 28 },
-      { id: 'es-convo', title: 'Conversation practice', chapter: 'Unit 5', due: 'Sat, 29 Jun', progress: 64 },
+      { id: 'es-subjunctive', title: 'Subjunctive mood', chapter: 'Unit 3', due: TOMORROW_ISO, progress: 28 },
+      { id: 'es-convo', title: 'Conversation practice', chapter: 'Unit 5', due: isoFromToday(2), progress: 64 },
     ],
   },
   {
@@ -73,11 +89,26 @@ const seedBooks = [
     author: 'R. C. Martin',
     accent: 'violet',
     topics: [
-      { id: 'cc-names', title: 'Meaningful names', chapter: 'Ch 2', due: 'Tue, 2 Jul', progress: 88 },
-      { id: 'cc-functions', title: 'Functions & arguments', chapter: 'Ch 3', due: 'Thu, 4 Jul', progress: 41 },
+      { id: 'cc-names', title: 'Meaningful names', chapter: 'Ch 2', due: isoFromToday(5), progress: 88 },
+      { id: 'cc-functions', title: 'Functions & arguments', chapter: 'Ch 3', due: isoFromToday(8), progress: 41 },
     ],
   },
 ]
+
+/* Dues saved by earlier builds were plain labels; map them onto relative ISO dates. */
+const LEGACY_DUE_OFFSETS = {
+  Today: 0,
+  Tomorrow: 1,
+  'Fri, 28 Jun': 1,
+  'Sat, 29 Jun': 2,
+  'Sun, 30 Jun': 3,
+  'Mon, 1 Jul': 4,
+  'Tue, 2 Jul': 5,
+  'Wed, 3 Jul': 6,
+  'Thu, 4 Jul': 8,
+  'Fri, 5 Jul': 9,
+}
+const isLegacyDue = (due) => typeof due === 'string' && due !== 'Unscheduled' && !/^\d{4}-/.test(due)
 
 const ACCENTS = [
   { id: 'coral', label: 'Coral' },
@@ -87,39 +118,53 @@ const ACCENTS = [
   { id: 'green', label: 'Green' },
 ]
 
-/* The app runs on a fixed demo clock: Thursday, 27 June 2024. */
-const APP_TODAY = new Date(2024, 5, 27)
-const WEEKDAYS_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-const WEEKDAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
-
-const toIso = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-const TODAY_ISO = toIso(APP_TODAY)
-const TOMORROW_ISO = toIso(new Date(2024, 5, 28))
-
 function dayLabel(iso) {
   if (iso === TODAY_ISO) return 'Today'
   if (iso === TOMORROW_ISO) return 'Tomorrow'
   const date = new Date(`${iso}T00:00:00`)
+  if (Number.isNaN(date.getTime())) return iso
   return `${WEEKDAYS_SHORT[date.getDay()]} ${date.getDate()} ${MONTHS_SHORT[date.getMonth()]}`
 }
 
 function monthOffsetFromToday(iso) {
   const date = new Date(`${iso}T00:00:00`)
-  return Math.max(0, (date.getFullYear() - 2024) * 12 + date.getMonth() - 5)
+  if (Number.isNaN(date.getTime())) return 0
+  return Math.max(0, (date.getFullYear() - APP_TODAY.getFullYear()) * 12 + date.getMonth() - APP_TODAY.getMonth())
 }
 
 function lastDays(count) {
   return Array.from({ length: count }, (_, index) => {
-    const date = new Date(2024, 5, 27 - (count - 1 - index))
+    const date = new Date(APP_TODAY.getFullYear(), APP_TODAY.getMonth(), APP_TODAY.getDate() - (count - 1 - index))
     const weekday = WEEKDAYS_SHORT[date.getDay()]
     return { iso: toIso(date), label: `${weekday} ${date.getDate()}`, initial: weekday[0] }
   })
 }
 
+/* Streak = consecutive days of positive progress, counting back from today.
+   Today gets grace: an unstarted day shows the run as "at risk" instead of broken;
+   a past day with no coverage resets it. Recomputed live from the coverage log. */
+function computeStreak(coverageLog, allTopics) {
+  const activeDays = new Set()
+  allTopics.forEach((topic) => {
+    Object.entries(coverageLog[topic.id] ?? {}).forEach(([iso, percent]) => {
+      if (percent > 0) activeDays.add(iso)
+    })
+  })
+  if (activeDays.size === 0) return 0
+  let streak = 0
+  let cursor = APP_TODAY
+  if (!activeDays.has(toIso(cursor))) {
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() - 1)
+  }
+  while (activeDays.has(toIso(cursor))) {
+    streak++
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() - 1)
+  }
+  return streak
+}
+
 function monthCells(monthOffset) {
-  const month = new Date(2024, 5 + monthOffset, 1)
+  const month = new Date(APP_TODAY.getFullYear(), APP_TODAY.getMonth() + monthOffset, 1)
   const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate()
   const leadingBlanks = (month.getDay() + 6) % 7
   return {
@@ -135,8 +180,25 @@ function monthCells(monthOffset) {
   }
 }
 
+/* Grid for the main calendar: browsable into the past, nothing disabled. */
+function calendarCells(monthOffset) {
+  const month = new Date(APP_TODAY.getFullYear(), APP_TODAY.getMonth() + monthOffset, 1)
+  const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate()
+  const leadingBlanks = (month.getDay() + 6) % 7
+  return {
+    label: `${MONTHS_LONG[month.getMonth()]} ${month.getFullYear()}`,
+    cells: [
+      ...Array.from({ length: leadingBlanks }, (_, index) => ({ blank: true, key: `blank-${index}` })),
+      ...Array.from({ length: daysInMonth }, (_, index) => {
+        const iso = toIso(new Date(month.getFullYear(), month.getMonth(), index + 1))
+        return { key: iso, iso, label: index + 1, today: iso === TODAY_ISO }
+      }),
+    ],
+  }
+}
+
 function dueLabel(topic, schedule) {
-  return schedule ? `${dayLabel(schedule.date)} · ${formatTime(schedule.time)}` : topic.due
+  return schedule ? `${dayLabel(schedule.date)} · ${formatTime(schedule.time)}` : dayLabel(topic.due)
 }
 
 function topicProgress(topic, checklists) {
@@ -159,7 +221,7 @@ function App() {
   const [query, setQuery] = useState('')
   const [openBookId, setOpenBookId] = useState(null)
   const [openTopicId, setOpenTopicId] = useState(null)
-  const [selectedDate, setSelectedDate] = useState(27)
+  const [selectedDate, setSelectedDate] = useState(TODAY_ISO)
   const [scheduleTopicId, setScheduleTopicId] = useState(null)
   const [addSheet, setAddSheet] = useState(null)
   const [editSheet, setEditSheet] = useState(null)
@@ -188,6 +250,13 @@ function App() {
   const [coverageLog, setCoverageLog] = useState(() => {
     try {
       return JSON.parse(window.localStorage.getItem('revision-coverage')) ?? {}
+    } catch {
+      return {}
+    }
+  })
+  const [canvases, setCanvases] = useState(() => {
+    try {
+      return JSON.parse(window.localStorage.getItem('revision-canvas')) ?? {}
     } catch {
       return {}
     }
@@ -224,6 +293,29 @@ function App() {
   useEffect(() => {
     window.localStorage.setItem('revision-coverage', JSON.stringify(coverageLog))
   }, [coverageLog])
+
+  useEffect(() => {
+    window.localStorage.setItem('revision-canvas', JSON.stringify(canvases))
+  }, [canvases])
+
+  const setCanvas = (topicId, updater) => {
+    setCanvases((current) => ({
+      ...current,
+      [topicId]: updater(current[topicId] ?? { texts: [], nodes: [], edges: [], strokes: [] }),
+    }))
+  }
+
+  /* One-time migration: turn legacy text dues ('Today', 'Mon, 1 Jul') into relative ISO dates. */
+  useEffect(() => {
+    if (!books.some((book) => book.topics.some((topic) => isLegacyDue(topic.due)))) return
+    setBooks((current) => current.map((book) => ({
+      ...book,
+      topics: book.topics.map((topic) => isLegacyDue(topic.due)
+        ? { ...topic, due: isoFromToday(LEGACY_DUE_OFFSETS[topic.due] ?? 2) }
+        : topic),
+    })))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   /* Daily roll: when the app opens on a new day, archive yesterday's coverage
      percentage into the log, then untick every checkbox for a fresh start. */
@@ -368,7 +460,11 @@ function App() {
       book.topics.forEach((topic) => delete next[topic.id])
       return next
     })
-    setCompleted((current) => current.filter((id) => !book.topics.some((topic) => topic.id === id)))
+    setCanvases((current) => {
+      const next = { ...current }
+      book.topics.forEach((topic) => delete next[topic.id])
+      return next
+    })
     setBooks((current) => current.filter((item) => item.id !== book.id))
     setOpenBookId(null)
     setEditSheet(null)
@@ -396,7 +492,11 @@ function App() {
       delete next[topicId]
       return next
     })
-    setCompleted((current) => current.filter((id) => id !== topicId))
+    setCanvases((current) => {
+      const next = { ...current }
+      delete next[topicId]
+      return next
+    })
     setBooks((current) => current.map((book) => book.id === bookId
       ? { ...book, topics: book.topics.filter((item) => item.id !== topicId) }
       : book
@@ -429,7 +529,8 @@ function App() {
             onOpenTopic={openTopicById}
             schedules={schedules}
             checklists={checklists}
-            coverageLog={coverageLog}
+            canvases={canvases}
+            onSetCanvas={setCanvas}
             onSchedule={setScheduleTopicId}
             onAddBook={() => setAddSheet({ type: 'book' })}
             onAddTopic={(bookId) => setAddSheet({ type: 'topic', bookId })}
@@ -441,13 +542,19 @@ function App() {
             onSetNote={setTopicNote}
           />
         ) : view === 'insights' ? (
-          <InsightsPage allTopics={allTopics} checklists={checklists} coverageLog={coverageLog} />
+          <InsightsPage allTopics={allTopics} checklists={checklists} coverageLog={coverageLog} weeklyGoal={settings.weeklyGoal} />
         ) : view === 'calendar' ? (
-          <CalendarPage selectedDate={selectedDate} onSelectDate={setSelectedDate} schedules={schedules} allTopics={allTopics} />
+          <CalendarPage
+            selectedDate={selectedDate}
+            onSelectDate={setSelectedDate}
+            schedules={schedules}
+            allTopics={allTopics}
+            coverageLog={coverageLog}
+            onOpenTopic={openTopicById}
+          />
         ) : (
           <HomePage
             topics={allTopics}
-            settings={settings}
             onSeeAll={() => setView('library')}
             schedules={schedules}
             checklists={checklists}
@@ -679,7 +786,7 @@ function ScheduleSheet({ topic, schedule, defaultTime, onSave, onReset, onClose 
   )
 }
 
-function LibraryPage({ books, allTopics, query, onQueryChange, openBookId, openTopicId, onOpenBook, onOpenTopic, schedules, checklists, coverageLog, onSchedule, onAddBook, onAddTopic, onEditBook, onEditTopic, onAddItem, onToggleItem, onDeleteItem, onSetNote }) {
+function LibraryPage({ books, allTopics, query, onQueryChange, openBookId, openTopicId, onOpenBook, onOpenTopic, schedules, checklists, canvases, onSetCanvas, onSchedule, onAddBook, onAddTopic, onEditBook, onEditTopic, onAddItem, onToggleItem, onDeleteItem, onSetNote }) {
   const openBook = books.find((book) => book.id === openBookId)
   const openTopic = openBook?.topics.find((topic) => topic.id === openTopicId)
 
@@ -690,10 +797,10 @@ function LibraryPage({ books, allTopics, query, onQueryChange, openBookId, openT
         topic={openTopic}
         book={openBook}
         entry={checklists[openTopic.id]}
-        log={coverageLog[openTopic.id]}
         schedule={schedules[openTopic.id]}
+        canvas={canvases[openTopic.id]}
+        onSetCanvas={(updater) => onSetCanvas(openTopic.id, updater)}
         onBack={() => onOpenTopic(null)}
-        onSchedule={() => onSchedule(openTopic.id)}
         onAddItem={onAddItem}
         onToggleItem={onToggleItem}
         onDeleteItem={onDeleteItem}
@@ -706,7 +813,7 @@ function LibraryPage({ books, allTopics, query, onQueryChange, openBookId, openT
     const topics = openBook.topics.map((topic) => ({ ...topic, accent: openBook.accent }))
     const filteredTopics = topics.filter((topic) => topic.title.toLowerCase().includes(query.toLowerCase()))
     const progress = topics.length ? Math.round(topics.reduce((sum, topic) => sum + topicProgress(topic, checklists), 0) / topics.length) : 0
-    const dueToday = topics.some((topic) => topic.due === 'Today')
+    const dueToday = topics.some((topic) => topic.due === TODAY_ISO)
 
     return (
       <section className="page-section library-page">
@@ -723,7 +830,7 @@ function LibraryPage({ books, allTopics, query, onQueryChange, openBookId, openT
               <span className="book-progress-bar"><span className={openBook.accent} style={{ width: `${progress}%` }} /></span>
               <strong>{progress}%</strong>
             </div>
-            <small>{topics.length === 0 ? 'No topics yet — add your first below.' : `${topics.length} topic${topics.length === 1 ? '' : 's'} · ${dueToday ? 'review due today' : `next review ${topics[0].due}`}`}</small>
+            <small>{topics.length === 0 ? 'No topics yet — add your first below.' : `${topics.length} topic${topics.length === 1 ? '' : 's'} · ${dueToday ? 'review due today' : `next review ${dayLabel(topics[0].due)}`}`}</small>
           </div>
           <button className="hero-more" onClick={() => onEditBook(openBook.id)} aria-label={`Edit or delete ${openBook.title}`} title="Edit or delete book">
             <MoreHorizontal size={17} />
@@ -753,8 +860,8 @@ function LibraryPage({ books, allTopics, query, onQueryChange, openBookId, openT
   const resultTopics = q
     ? allTopics.filter((topic) => topic.title.toLowerCase().includes(q) || topic.bookTitle.toLowerCase().includes(q))
     : []
-  const featuredBook = books.find((book) => book.topics.some((topic) => topic.due === 'Today')) || books.find((book) => book.topics.length > 0)
-  const featuredTopic = featuredBook ? (featuredBook.topics.find((topic) => topic.due === 'Today') || featuredBook.topics[0]) : null
+  const featuredBook = books.find((book) => book.topics.some((topic) => topic.due === TODAY_ISO)) || books.find((book) => book.topics.length > 0)
+  const featuredTopic = featuredBook ? (featuredBook.topics.find((topic) => topic.due === TODAY_ISO) || featuredBook.topics[0]) : null
 
   return (
     <section className="page-section library-page">
@@ -790,7 +897,7 @@ function LibraryPage({ books, allTopics, query, onQueryChange, openBookId, openT
               <span className="hero-copy">
                 <span className="focus-label">Continue revising</span>
                 <strong>{featuredTopic.title}</strong>
-                <small>{featuredBook.title} · due {featuredTopic.due}</small>
+                <small>{featuredBook.title} · due {dayLabel(featuredTopic.due)}</small>
               </span>
               <ArrowUpRight size={18} />
             </button>
@@ -826,13 +933,13 @@ function BookCard({ book, checklists, onOpen }) {
       </span>
       <span className="book-card-meta">
         <strong>{topics.length} topics</strong>
-        <small>{topics.length ? `Next · ${topics[0].due}` : 'No topics yet'}</small>
+        <small>{topics.length ? `Next · ${dayLabel(topics[0].due)}` : 'No topics yet'}</small>
       </span>
     </button>
   )
 }
 
-function InsightsPage({ allTopics, checklists, coverageLog }) {
+function InsightsPage({ allTopics, checklists, coverageLog, weeklyGoal }) {
   const days = lastDays(7)
   const dayPercent = (iso) => {
     const values = allTopics
@@ -845,23 +952,43 @@ function InsightsPage({ allTopics, checklists, coverageLog }) {
   const recorded = series.filter((day) => day.percent !== null)
   const avgCoverage = recorded.length > 0 ? Math.round(recorded.reduce((sum, day) => sum + day.percent, 0) / recorded.length) : 0
 
-  let streak = 0
-  for (let index = series.length - 1; index >= 0; index--) {
-    if ((series[index].percent ?? 0) > 0) streak++
-    else if (streak > 0) break
-  }
+  const streak = computeStreak(coverageLog, allTopics)
+  const todayPercent = dayPercent(TODAY_ISO)
+  const yesterdayIso = toIso(new Date(APP_TODAY.getFullYear(), APP_TODAY.getMonth(), APP_TODAY.getDate() - 1))
+  const yesterdayPercent = dayPercent(yesterdayIso)
+  const delta = (todayPercent ?? 0) - (yesterdayPercent ?? 0)
+  const hasDeltaData = todayPercent !== null || yesterdayPercent !== null
+  const atRisk = streak > 0 && (todayPercent ?? 0) === 0
+  const streakStatus = streak === 0
+    ? ((todayPercent ?? 0) > 0 ? 'Streak started — first progress logged today.' : 'No progress yet — tick a point to start a streak.')
+    : atRisk ? 'At risk — no progress yet today.' : `Extended to ${streak} day${streak === 1 ? '' : 's'} — keep it going!`
 
   const todayEntries = Object.values(checklists).filter((entry) => entry.day === TODAY_ISO)
   const totalPoints = todayEntries.reduce((sum, entry) => sum + entry.items.length, 0)
   const donePoints = todayEntries.reduce((sum, entry) => sum + entry.items.filter((item) => item.done).length, 0)
+  const coveredToday = allTopics.filter((topic) => isCoveredToday(topic, checklists)).length
 
   return (
     <section className="page-section">
       <PageHeader title="Your rhythm" subtitle="Small sessions compound into real recall." icon={<Target size={18} />} />
+
+      <div className="live-panel">
+        <div className="live-head">
+          <span className="live-badge"><i className="live-dot" /> Live</span>
+          <strong className="live-streak"><Flame size={16} /> {streak} {streak === 1 ? 'day' : 'days'}</strong>
+        </div>
+        <p className="live-status">{streakStatus}</p>
+        <div className="live-stats">
+          <div className="live-stat"><span>Today</span><strong>{todayPercent ?? 0}%</strong></div>
+          <div className="live-stat"><span>vs yesterday</span><strong className={!hasDeltaData ? '' : delta > 0 ? 'positive' : delta < 0 ? 'negative' : ''}>{!hasDeltaData ? '—' : delta > 0 ? `+${delta}%` : delta < 0 ? `${delta}%` : '±0%'}</strong></div>
+          <div className="live-stat"><span>Points</span><strong>{totalPoints > 0 ? `${donePoints}/${totalPoints}` : '0'}</strong></div>
+        </div>
+      </div>
+
       <div className="insight-grid">
-        <div className="insight-card highlight-card"><Flame size={20} /><strong>{streak} {streak === 1 ? 'day' : 'days'}</strong><span>Current streak</span></div>
         <div className="insight-card"><Brain size={20} /><strong>{avgCoverage}%</strong><span>Avg daily coverage</span></div>
         <div className="insight-card"><CalendarDays size={20} /><strong>{totalPoints > 0 ? `${donePoints}/${totalPoints}` : '0'}</strong><span>Points ticked today</span></div>
+        <div className="insight-card"><Check size={20} /><strong>{coveredToday}</strong><span>Topics covered today</span></div>
       </div>
       <div className="panel weekly-panel">
         <div className="panel-heading"><div><h2>This week</h2><p>Average daily coverage across your topics</p></div><MoreHorizontal size={20} /></div>
@@ -873,60 +1000,54 @@ function InsightsPage({ allTopics, checklists, coverageLog }) {
             </div>
           ))}
         </div>
-        <p className="insight-note">Coverage is the share of checklist points you tick each day.</p>
+        <p className="insight-note">
+          {coveredToday >= weeklyGoal
+            ? 'Weekly goal reached — nice rhythm.'
+            : `${weeklyGoal - coveredToday} more topic${weeklyGoal - coveredToday === 1 ? '' : 's'} to reach your weekly goal.`}
+          {' '}Coverage is the share of checklist points you tick each day.
+        </p>
       </div>
     </section>
   )
 }
 
-function CalendarPage({ selectedDate, onSelectDate, schedules, allTopics }) {
-  const scheduledByDay = {}
+function CalendarPage({ selectedDate, onSelectDate, schedules, allTopics, coverageLog, onOpenTopic }) {
+  const [monthOffset, setMonthOffset] = useState(() => monthOffsetFromToday(selectedDate))
+
+  const scheduledByIso = {}
+  const autoByIso = {}
   allTopics.forEach((topic) => {
     const schedule = schedules[topic.id]
-    if (!schedule || !schedule.date.startsWith('2024-06')) return
-    const day = Number(schedule.date.slice(8, 10))
-    ;(scheduledByDay[day] ??= []).push({ ...topic, schedule })
+    if (schedule) (scheduledByIso[schedule.date] ??= []).push({ topic, time: schedule.time })
+    else if (topic.due !== 'Unscheduled') (autoByIso[topic.due] ??= []).push(topic)
   })
 
-  const markers = {
-    3: { tone: 'blue', count: 1 },
-    6: { tone: 'coral', count: 2 },
-    11: { tone: 'yellow', count: 1 },
-    14: { tone: 'blue', count: 1 },
-    19: { tone: 'coral', count: 3 },
-    24: { tone: 'yellow', count: 1 },
-    27: { tone: 'coral', count: 2 },
+  const { label: monthLabel, cells } = calendarCells(monthOffset)
+  const markerFor = (iso) => {
+    if (scheduledByIso[iso]?.length) return { tone: 'violet', count: scheduledByIso[iso].length }
+    if (autoByIso[iso]?.length) return { tone: 'coral', count: autoByIso[iso].length }
+    if (allTopics.some((topic) => coverageLog[topic.id]?.[iso] !== undefined)) return { tone: 'blue', count: '' }
+    return null
   }
-  Object.entries(scheduledByDay).forEach(([day, list]) => {
-    markers[day] = { tone: 'violet', count: list.length }
-  })
 
-  const autoReviews = [
-    { day: 27, weekday: 'THU', title: 'React Server Components', meta: 'Learning React · auto', tone: 'coral', time: null },
-    { day: 28, weekday: 'FRI', title: 'Subjunctive mood', meta: 'Fluent Spanish · auto', tone: 'yellow', time: null },
-    { day: 30, weekday: 'SUN', title: 'Replication', meta: 'Data-intensive apps · auto', tone: 'blue', time: null },
-  ].filter((review) => !allTopics.some((topic) => schedules[topic.id] && topic.title === review.title))
-
-  const scheduledReviews = Object.entries(scheduledByDay).flatMap(([day, list]) =>
-    list.map((topic) => ({
-      day: Number(day),
-      weekday: WEEKDAYS_LONG[new Date(2024, 5, Number(day)).getDay()].slice(0, 3).toUpperCase(),
-      title: topic.title,
-      meta: `${topic.bookTitle} · ${formatTime(topic.schedule.time)}`,
-      tone: 'violet',
-      time: topic.schedule.time,
-    }))
-  )
-
-  const upcomingReviews = [...autoReviews, ...scheduledReviews].sort((a, b) =>
-    a.day - b.day || (a.time ?? '00:00').localeCompare(b.time ?? '00:00')
-  )
-
-  const calendarDays = [
-    ...Array.from({ length: 6 }, (_, index) => ({ day: 26 + index, outside: true })),
-    ...Array.from({ length: 30 }, (_, index) => ({ day: index + 1 })),
-    ...Array.from({ length: 6 }, (_, index) => ({ day: index + 1, outside: true })),
-  ]
+  const isPast = selectedDate < TODAY_ISO
+  const dayItems = isPast ? [] : [
+    ...(scheduledByIso[selectedDate] ?? []).map(({ topic, time }) => ({ topic, time, kind: 'scheduled' })),
+    ...(autoByIso[selectedDate] ?? []).map((topic) => ({ topic, time: null, kind: 'auto' })),
+  ].sort((a, b) => (a.time ?? '99:99').localeCompare(b.time ?? '99:99'))
+  const coverageDay = isPast
+    ? allTopics
+        .map((topic) => ({ topic, percent: coverageLog[topic.id]?.[selectedDate] }))
+        .filter((item) => item.percent !== undefined)
+        .sort((a, b) => b.percent - a.percent)
+    : []
+  const dayCount = isPast ? coverageDay.length : dayItems.length
+  const headingTitle = isPast
+    ? `Coverage on ${dayLabel(selectedDate)}`
+    : selectedDate === TODAY_ISO ? 'Today’s reviews' : `Reviews on ${dayLabel(selectedDate)}`
+  const headingSub = isPast
+    ? 'What you actually covered that day.'
+    : 'Tap a review to open its topic.'
 
   return (
     <section className="page-section calendar-page">
@@ -936,67 +1057,75 @@ function CalendarPage({ selectedDate, onSelectDate, schedules, allTopics }) {
         <div className="calendar-toolbar">
           <div>
             <span className="calendar-eyebrow">Review plan</span>
-            <h2>June 2024</h2>
+            <h2>{monthLabel}</h2>
           </div>
           <div className="calendar-actions">
-            <button className="calendar-action" aria-label="Previous month"><ChevronRight size={16} className="rotate-180" /></button>
-            <button className="calendar-action" aria-label="Next month"><ChevronRight size={16} /></button>
+            <button className="text-button today-jump" onClick={() => { setMonthOffset(0); onSelectDate(TODAY_ISO) }}>Today</button>
+            <button className="calendar-action" disabled={monthOffset <= -12} onClick={() => setMonthOffset((offset) => offset - 1)} aria-label="Previous month"><ChevronRight size={16} className="rotate-180" /></button>
+            <button className="calendar-action" disabled={monthOffset >= 11} onClick={() => setMonthOffset((offset) => offset + 1)} aria-label="Next month"><ChevronRight size={16} /></button>
           </div>
         </div>
         <div className="calendar-weekdays" aria-hidden="true">
           {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((weekday, index) => <span key={`${weekday}-${index}`}>{weekday}</span>)}
         </div>
-        <div className="calendar-grid" role="grid" aria-label="June 2024 review calendar">
-          {calendarDays.map((item, index) => {
-            const review = !item.outside ? markers[item.day] : null
-            const isSelected = !item.outside && item.day === selectedDate
+        <div className="calendar-grid" role="grid" aria-label={`Review calendar for ${monthLabel}`}>
+          {cells.map((cell) => {
+            if (cell.blank) return <span key={cell.key} />
+            const marker = markerFor(cell.iso)
             return (
               <button
-                className={`calendar-day ${item.outside ? 'outside-month' : ''} ${isSelected ? 'selected-day' : ''}`}
-                key={`${item.outside ? 'outside' : 'current'}-${item.day}-${index}`}
-                onClick={() => !item.outside && onSelectDate(item.day)}
-                aria-label={`${item.outside ? 'Adjacent month' : 'June'} ${item.day}${review ? `, ${review.count} review${review.count > 1 ? 's' : ''}` : ''}`}
-                aria-pressed={isSelected}
-                disabled={item.outside}
+                className={`calendar-day ${cell.iso === selectedDate ? 'selected-day' : ''} ${cell.today ? 'is-today' : ''}`}
+                key={cell.iso}
+                onClick={() => onSelectDate(cell.iso)}
+                aria-pressed={cell.iso === selectedDate}
+                aria-label={`${dayLabel(cell.iso)}${marker ? (marker.tone === 'blue' ? ', coverage logged' : `, ${marker.count} review${marker.count > 1 ? 's' : ''}`) : ''}`}
               >
-                <span>{item.day}</span>
-                {review && <i className={`review-marker ${review.tone}`}>{review.count > 1 ? review.count : ''}</i>}
+                <span>{cell.label}</span>
+                {marker && <i className={`review-marker ${marker.tone}`}>{marker.count > 1 ? marker.count : ''}</i>}
               </button>
             )
           })}
         </div>
         <div className="calendar-legend">
-          <span><i className="legend-dot coral" /> Review due</span>
-          <span><i className="legend-dot blue" /> Planned</span>
           <span><i className="legend-dot violet" /> Scheduled by you</span>
+          <span><i className="legend-dot coral" /> Auto plan</span>
+          <span><i className="legend-dot blue" /> Coverage logged</span>
         </div>
       </div>
 
       <div className="section-heading calendar-list-heading">
-        <div><h2>Upcoming reviews</h2><p>{selectedDate === 27 ? 'Your next few sessions are ready.' : `Reviews around June ${selectedDate}.`}</p></div>
-        <span className="review-count">{upcomingReviews.length} queued</span>
+        <div><h2>{headingTitle}</h2><p>{headingSub}</p></div>
+        <span className="review-count">{dayCount} queued</span>
       </div>
       <div className="upcoming-list">
-        {upcomingReviews.map((review) => (
-          <button className={`upcoming-review ${review.day === selectedDate ? 'current-review' : ''}`} key={`${review.day}-${review.title}`} onClick={() => onSelectDate(review.day)}>
-            <span className="review-date"><strong>{review.day}</strong><small>{review.weekday}</small></span>
-            <span className={`review-accent ${review.tone}`} />
-            <span className="review-details"><strong>{review.title}</strong><small>{review.meta}</small></span>
-            <ChevronRight size={17} />
-          </button>
-        ))}
+        {(isPast ? coverageDay : dayItems).map((entry) => {
+          const tone = isPast ? 'blue' : entry.kind === 'scheduled' ? 'violet' : 'coral'
+          const slotLabel = isPast ? 'covered' : entry.kind === 'scheduled' ? 'planned' : 'auto'
+          const meta = isPast ? entry.topic.bookTitle : `${entry.topic.bookTitle} · ${entry.time ? formatTime(entry.time) : 'anytime'}`
+          return (
+            <button className="upcoming-review" key={`${entry.topic.id}-${selectedDate}`} onClick={() => onOpenTopic(entry.topic.id)}>
+              <span className="review-date"><strong>{isPast ? `${entry.percent}%` : selectedDate === TODAY_ISO ? 'Today' : new Date(`${selectedDate}T00:00:00`).getDate()}</strong><small>{slotLabel}</small></span>
+              <span className={`review-accent ${tone}`} />
+              <span className="review-details"><strong>{entry.topic.title}</strong><small>{meta}</small></span>
+              <ChevronRight size={17} />
+            </button>
+          )
+        })}
+        {dayCount === 0 && (
+          <p className="empty-note">
+            {isPast ? 'No coverage recorded for this day.' : 'Nothing planned for this day. Use the clock icon on any topic to schedule it here.'}
+          </p>
+        )}
       </div>
     </section>
   )
 }
 
-function HomePage({ topics, settings, onSeeAll, schedules, checklists, onSchedule, onEditTopic, onOpenTopic }) {
+function HomePage({ topics, onSeeAll, schedules, checklists, onSchedule, onEditTopic, onOpenTopic }) {
   const scheduledPending = topics
     .filter((topic) => schedules[topic.id] && !isCoveredToday(topic, checklists))
     .sort((a, b) => scheduleSortKey(schedules[a.id]).localeCompare(scheduleSortKey(schedules[b.id])))
   const nextTopic = scheduledPending[0] ?? topics.find((topic) => !isCoveredToday(topic, checklists)) ?? topics[0]
-  const coveredCount = topics.filter((topic) => isCoveredToday(topic, checklists)).length
-  const goalProgress = Math.min(100, Math.round((coveredCount / settings.weeklyGoal) * 100))
   return (
     <section className="page-section home-page">
       <header className="topbar">
@@ -1005,7 +1134,7 @@ function HomePage({ topics, settings, onSeeAll, schedules, checklists, onSchedul
       </header>
 
       <div className="greeting">
-        <p className="date-line">Thursday, 27 June</p>
+        <p className="date-line">{WEEKDAYS_LONG[APP_TODAY.getDay()]}, {APP_TODAY.getDate()} {MONTHS_LONG[APP_TODAY.getMonth()]}</p>
         <h1>Make today<br /><em>stick.</em></h1>
         <p className="intro-copy">A little review now saves a lot of re-learning later.</p>
       </div>
@@ -1028,20 +1157,15 @@ function HomePage({ topics, settings, onSeeAll, schedules, checklists, onSchedul
           <TopicRow key={topic.id} topic={topic} schedule={schedules[topic.id]} checklists={checklists} onOpen={onOpenTopic} onSchedule={onSchedule} onEdit={onEditTopic} />
         ))}
       </div>
-
-      <div className="streak-banner"><div className="streak-icon"><Flame size={18} /></div><div><strong>7 day streak</strong><span>{coveredCount >= settings.weeklyGoal ? 'Weekly goal reached. Keep the rhythm going.' : `${settings.weeklyGoal - coveredCount} more review${settings.weeklyGoal - coveredCount === 1 ? '' : 's'} to reach your weekly goal.`}</span></div><div className="streak-progress"><span style={{ width: `${goalProgress}%` }} /></div></div>
-      <div className={`reminder-banner ${settings.remindersEnabled ? '' : 'is-muted'}`}><CalendarDays size={16} /><span>{settings.remindersEnabled ? `Reminder set for ${formatTime(settings.reminderTime)}.` : 'Reminders are currently off.'}</span></div>
     </section>
   )
 }
 
-function TopicPage({ topic, book, entry, log, schedule, onBack, onSchedule, onAddItem, onToggleItem, onDeleteItem, onSetNote }) {
+function TopicPage({ topic, book, entry, schedule, canvas, onSetCanvas, onBack, onAddItem, onToggleItem, onDeleteItem, onSetNote }) {
   const [draft, setDraft] = useState('')
+  const [space, setSpace] = useState('board')
   const items = entry?.items ?? []
-  const doneCount = items.filter((item) => item.done).length
-  const percent = items.length > 0 ? Math.round((doneCount / items.length) * 100) : 0
   const note = entry?.note ?? ''
-  const days = lastDays(7)
 
   const submitItem = (event) => {
     event.preventDefault()
@@ -1049,7 +1173,6 @@ function TopicPage({ topic, book, entry, log, schedule, onBack, onSchedule, onAd
     onAddItem(topic.id, draft.trim())
     setDraft('')
   }
-
   return (
     <section className="page-section topic-page">
       <button className="back-button" onClick={onBack}><ChevronLeft size={15} /> {book.title}</button>
@@ -1063,65 +1186,327 @@ function TopicPage({ topic, book, entry, log, schedule, onBack, onSchedule, onAd
         </div>
       </div>
 
-      <div className="coverage-card">
-        <div className="coverage-head">
-          <div>
-            <span className="focus-label">Covered today</span>
-            <strong>{percent}%</strong>
-          </div>
-          <button className="ghost-button compact" onClick={onSchedule}><CalendarClock size={13} /> {schedule ? 'Reschedule' : 'Schedule'}</button>
-        </div>
-        <div className="coverage-bar"><span style={{ width: `${percent}%` }} /></div>
-        <small>{items.length > 0 ? `${doneCount} of ${items.length} points done · checkboxes reset tomorrow` : 'Add points below to start tracking today\u2019s coverage.'}</small>
+      <div className="space-toggle" role="tablist" aria-label="Topic spaces">
+        <button role="tab" aria-selected={space === 'board'} className={space === 'board' ? 'active' : ''} onClick={() => setSpace('board')}>Board</button>
+        <button role="tab" aria-selected={space === 'notes'} className={space === 'notes' ? 'active' : ''} onClick={() => setSpace('notes')}>Notes</button>
       </div>
 
-      <div className="section-heading">
-        <div><h2>Coverage checklist</h2><p>Tick points off as you cover them.</p></div>
-        {items.length > 0 && <span className="review-count">{doneCount}/{items.length}</span>}
+      {space === 'board' ? (
+        <TopicBoard canvas={canvas ?? { texts: [], nodes: [], edges: [], strokes: [] }} onChange={onSetCanvas} />
+      ) : (
+        <>
+          <div className="check-list">
+            {items.map((item) => (
+              <div key={item.id} className={`check-item ${item.done ? 'done' : ''}`}>
+                <button className="check-toggle" onClick={() => onToggleItem(topic.id, item.id)} aria-pressed={item.done} aria-label={`${item.done ? 'Untick' : 'Tick'} ${item.text}`}>
+                  <span className="check-box">{item.done && <Check size={13} />}</span>
+                  <span className="check-text">{item.text}</span>
+                </button>
+                <button className="check-remove" onClick={() => onDeleteItem(topic.id, item.id)} aria-label={`Remove ${item.text}`}><X size={13} /></button>
+              </div>
+            ))}
+            {items.length === 0 && <p className="empty-note">Nothing here yet — add your first point below.</p>}
+          </div>
+          <form className="check-add" onSubmit={submitItem}>
+            <CirclePlus size={16} />
+            <input
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => event.key === 'Enter' && submitItem(event)}
+              placeholder="Add a point…"
+              aria-label="Add a checklist point"
+            />
+            <button type="submit" disabled={!draft.trim()}>Add</button>
+          </form>
+
+          <textarea
+            className="note-area"
+            value={note}
+            onChange={(event) => onSetNote(topic.id, event.target.value)}
+            placeholder="Write freely…"
+            aria-label="Notes"
+          />
+        </>
+      )}
+    </section>
+  )
+}
+
+const NODE_W = 132
+const NODE_H = 44
+const BOARD_TOOLS = [
+  { id: 'write', label: 'Write', hint: 'Tap anywhere and start typing', icon: Type },
+  { id: 'draw', label: 'Draw', hint: 'Drag to sketch', icon: Pencil },
+  { id: 'mind', label: 'Mind map', hint: 'Tap for a node · tap two nodes to connect them', icon: Share2 },
+  { id: 'erase', label: 'Erase', hint: 'Tap anything to erase it', icon: Eraser },
+]
+
+function strokesPath(points) {
+  return points.map((p, index) => `${index === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')
+}
+
+function TopicBoard({ canvas, onChange }) {
+  const boardRef = useRef(null)
+  const [tool, setTool] = useState('write')
+  const [textDraft, setTextDraft] = useState(null)
+  const [nodeDraft, setNodeDraft] = useState(null)
+  const [selectedId, setSelectedId] = useState(null)
+  const [liveStroke, setLiveStroke] = useState(null)
+  const strokeRef = useRef(null)
+  const dragRef = useRef(null)
+  const cancelRef = useRef(false)
+
+  const point = (event) => {
+    const rect = boardRef.current.getBoundingClientRect()
+    return { x: Math.round(event.clientX - rect.left), y: Math.round(event.clientY - rect.top) }
+  }
+
+  const update = (mutator) => onChange((current) => {
+    const next = { texts: [...current.texts], nodes: [...current.nodes], edges: [...current.edges], strokes: [...current.strokes] }
+    mutator(next)
+    return next
+  })
+
+  const onBackground = (event) => !event.target.closest('[data-el]') && !event.target.closest('[data-ui]')
+
+  const onBoardPointerDown = (event) => {
+    if (!onBackground(event)) return
+    if (tool === 'draw') {
+      strokeRef.current = [point(event)]
+      setLiveStroke(strokeRef.current)
+    }
+  }
+  const onBoardPointerMove = (event) => {
+    if (tool !== 'draw' || !strokeRef.current) return
+    const p = point(event)
+    const last = strokeRef.current[strokeRef.current.length - 1]
+    if (Math.hypot(p.x - last.x, p.y - last.y) > 2) {
+      strokeRef.current = [...strokeRef.current, p]
+      setLiveStroke(strokeRef.current)
+    }
+  }
+  const onBoardPointerUp = () => {
+    if (tool !== 'draw' || !strokeRef.current) return
+    const points = strokeRef.current
+    if (points.length > 1) update((c) => { c.strokes.push({ id: `st-${Date.now()}`, points }) })
+    strokeRef.current = null
+    setLiveStroke(null)
+  }
+  const onBoardClick = (event) => {
+    if (!onBackground(event)) return
+    if (tool === 'write') {
+      setSelectedId(null)
+      const p = point(event)
+      cancelRef.current = false
+      setTextDraft({ x: p.x, y: p.y, value: '' })
+    } else if (tool === 'mind') {
+      setSelectedId(null)
+      const p = point(event)
+      const id = `nd-${Date.now()}`
+      update((c) => { c.nodes.push({ id, x: p.x - NODE_W / 2, y: p.y - NODE_H / 2, label: '' }) })
+      cancelRef.current = false
+      setNodeDraft({ id, value: '', isNew: true })
+    }
+  }
+
+  const commitText = () => {
+    const draft = textDraft
+    if (!draft) return
+    if (cancelRef.current) {
+      cancelRef.current = false
+      setTextDraft(null)
+      return
+    }
+    const value = draft.value.trim()
+    if (value) {
+      update((c) => {
+        if (draft.id) c.texts = c.texts.map((t) => t.id === draft.id ? { ...t, text: draft.value } : t)
+        else c.texts.push({ id: `tx-${Date.now()}`, x: draft.x, y: draft.y, text: draft.value })
+      })
+    } else if (draft.id) {
+      update((c) => { c.texts = c.texts.filter((t) => t.id !== draft.id) })
+    }
+    setTextDraft(null)
+  }
+
+  const commitNodeLabel = () => {
+    const draft = nodeDraft
+    if (!draft) return
+    const cancelled = cancelRef.current
+    cancelRef.current = false
+    const value = cancelled ? '' : draft.value.trim()
+    if (value) {
+      update((c) => { c.nodes = c.nodes.map((n) => n.id === draft.id ? { ...n, label: value } : n) })
+    } else if (draft.isNew || cancelled) {
+      update((c) => {
+        c.nodes = c.nodes.filter((n) => n.id !== draft.id)
+        c.edges = c.edges.filter((e) => e.from !== draft.id && e.to !== draft.id)
+      })
+    }
+    setNodeDraft(null)
+  }
+
+  const startNodeDrag = (event, node) => {
+    if (tool !== 'mind' || nodeDraft) return
+    event.stopPropagation()
+    const p = point(event)
+    dragRef.current = { id: node.id, dx: p.x - node.x, dy: p.y - node.y }
+    try { event.currentTarget.setPointerCapture(event.pointerId) } catch { /* synthetic events may not capture */ }
+  }
+  const onNodePointerMove = (event, node) => {
+    const drag = dragRef.current
+    if (!drag || drag.id !== node.id) return
+    const p = point(event)
+    update((c) => {
+      c.nodes = c.nodes.map((n) => n.id === node.id
+        ? { ...n, x: Math.max(0, p.x - drag.dx), y: Math.max(0, p.y - drag.dy) }
+        : n)
+    })
+  }
+  const endNodeDrag = () => { dragRef.current = null }
+
+  const onNodeClick = (event, node) => {
+    event.stopPropagation()
+    if (tool === 'erase') {
+      update((c) => {
+        c.nodes = c.nodes.filter((n) => n.id !== node.id)
+        c.edges = c.edges.filter((e) => e.from !== node.id && e.to !== node.id)
+      })
+      return
+    }
+    if (tool !== 'mind' || nodeDraft) return
+    if (selectedId && selectedId !== node.id && !canvas.edges.some((e) => (e.from === selectedId && e.to === node.id) || (e.from === node.id && e.to === selectedId))) {
+      update((c) => { c.edges.push({ id: `eg-${Date.now()}`, from: selectedId, to: node.id }) })
+    }
+    setSelectedId((current) => (current === node.id ? null : node.id))
+  }
+
+  const activeHint = BOARD_TOOLS.find((item) => item.id === tool).hint
+
+  return (
+    <div className="board-wrap">
+      <div className="board-toolbar" data-ui>
+        {BOARD_TOOLS.map(({ id, label, icon: Icon }) => (
+          <button key={id} className={`board-tool ${tool === id ? 'active' : ''}`} onClick={() => { setTool(id); setSelectedId(null) }} aria-label={label} aria-pressed={tool === id} title={label}>
+            <Icon size={15} />
+          </button>
+        ))}
+        <span className="board-hint">{activeHint}</span>
+        <button
+          className="board-tool"
+          onClick={() => {
+            if (!window.confirm('Clear everything on this board?')) return
+            onChange(() => ({ texts: [], nodes: [], edges: [], strokes: [] }))
+            setSelectedId(null)
+            setTextDraft(null)
+            setNodeDraft(null)
+          }}
+          aria-label="Clear board"
+          title="Clear board"
+        >
+          <Trash2 size={15} />
+        </button>
       </div>
-      <div className="check-list">
-        {items.map((item) => (
-          <div key={item.id} className={`check-item ${item.done ? 'done' : ''}`}>
-            <button className="check-toggle" onClick={() => onToggleItem(topic.id, item.id)} aria-pressed={item.done} aria-label={`${item.done ? 'Untick' : 'Tick'} ${item.text}`}>
-              <span className="check-box">{item.done && <Check size={13} />}</span>
-              <span className="check-text">{item.text}</span>
-            </button>
-            <button className="check-remove" onClick={() => onDeleteItem(topic.id, item.id)} aria-label={`Remove ${item.text}`}><X size={13} /></button>
+
+      <div
+        ref={boardRef}
+        className={`board-surface tool-${tool}`}
+        onPointerDown={onBoardPointerDown}
+        onPointerMove={onBoardPointerMove}
+        onPointerUp={onBoardPointerUp}
+        onPointerLeave={onBoardPointerUp}
+        onClick={onBoardClick}
+      >
+        <svg className="board-svg" aria-hidden="true">
+          {canvas.edges.map((edge) => {
+            const from = canvas.nodes.find((n) => n.id === edge.from)
+            const to = canvas.nodes.find((n) => n.id === edge.to)
+            if (!from || !to) return null
+            return <line key={edge.id} className="board-edge" x1={from.x + NODE_W / 2} y1={from.y + NODE_H / 2} x2={to.x + NODE_W / 2} y2={to.y + NODE_H / 2} />
+          })}
+          {canvas.strokes.map((stroke) => (
+            <path
+              key={stroke.id}
+              className={`board-stroke ${tool === 'erase' ? 'erasable' : ''}`}
+              d={strokesPath(stroke.points)}
+              onClick={(event) => {
+                if (tool !== 'erase') return
+                event.stopPropagation()
+                update((c) => { c.strokes = c.strokes.filter((s) => s.id !== stroke.id) })
+              }}
+            />
+          ))}
+          {liveStroke && <path className="board-stroke" d={strokesPath(liveStroke)} />}
+        </svg>
+
+        {canvas.texts.map((text) => textDraft?.id === text.id ? null : (
+          <div
+            key={text.id}
+            data-el
+            className="board-text"
+            style={{ left: text.x, top: text.y }}
+            onClick={(event) => {
+              event.stopPropagation()
+              if (tool === 'erase') update((c) => { c.texts = c.texts.filter((t) => t.id !== text.id) })
+              else if (tool === 'write' && !textDraft) { cancelRef.current = false; setTextDraft({ id: text.id, x: text.x, y: text.y, value: text.text }) }
+            }}
+          >
+            {text.text}
           </div>
         ))}
-        {items.length === 0 && <p className="empty-note">No points yet. Add the pieces you want to cover — sub-sections, exercises, flashcards…</p>}
-      </div>
-      <form className="check-add" onSubmit={submitItem}>
-        <CirclePlus size={16} />
-        <input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Add a point to cover…" aria-label="Add a checklist point" />
-        <button type="submit" disabled={!draft.trim()}>Add</button>
-      </form>
 
-      <div className="section-heading"><div><h2>Notes</h2><p>Anything worth remembering — kept across days.</p></div></div>
-      <textarea
-        className="note-area"
-        value={note}
-        onChange={(event) => onSetNote(topic.id, event.target.value)}
-        placeholder="Write freely…"
-        aria-label="Notes"
-      />
+        {canvas.nodes.map((node) => (
+          <div
+            key={node.id}
+            data-el
+            className={`board-node ${tool === 'mind' ? 'draggable' : ''} ${selectedId === node.id ? 'selected' : ''}`}
+            style={{ left: node.x, top: node.y, width: NODE_W, height: NODE_H }}
+            onPointerDown={(event) => startNodeDrag(event, node)}
+            onPointerMove={(event) => onNodePointerMove(event, node)}
+            onPointerUp={endNodeDrag}
+            onPointerCancel={endNodeDrag}
+            onClick={(event) => onNodeClick(event, node)}
+            onDoubleClick={(event) => {
+              event.stopPropagation()
+              if (tool === 'mind') { cancelRef.current = false; setNodeDraft({ id: node.id, value: node.label, isNew: false }) }
+            }}
+          >
+            {nodeDraft?.id === node.id ? (
+              <input
+                className="board-node-input"
+                value={nodeDraft.value}
+                autoFocus
+                onChange={(event) => setNodeDraft({ ...nodeDraft, value: event.target.value })}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') commitNodeLabel()
+                  if (event.key === 'Escape') { cancelRef.current = true; commitNodeLabel() }
+                }}
+                onBlur={commitNodeLabel}
+                aria-label="Node label"
+              />
+            ) : (
+              <span className="board-node-label">{node.label}</span>
+            )}
+          </div>
+        ))}
 
-      <div className="section-heading"><div><h2>Last 7 days</h2><p>Coverage recorded from your checkboxes.</p></div></div>
-      <div className="history-strip" role="img" aria-label="Daily coverage over the last 7 days">
-        {days.map((day) => {
-          const recorded = log?.[day.iso] !== undefined
-          return (
-            <div key={day.iso} className={`history-day ${day.iso === TODAY_ISO ? 'today' : ''}`}>
-              <div className="history-bar">
-                <span className={recorded ? '' : 'empty'} style={{ height: `${recorded ? log[day.iso] : 0}%` }} />
-              </div>
-              {recorded ? <em>{log[day.iso]}%</em> : <em>&nbsp;</em>}
-              <small>{day.label}</small>
-            </div>
-          )
-        })}
+        {textDraft && (
+          <input
+            className="board-input"
+            style={{ left: textDraft.x, top: textDraft.y, width: `${Math.max(6, textDraft.value.length + 1)}ch` }}
+            value={textDraft.value}
+            autoFocus
+            onChange={(event) => setTextDraft({ ...textDraft, value: event.target.value })}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') commitText()
+              if (event.key === 'Escape') { cancelRef.current = true; commitText() }
+            }}
+            onBlur={commitText}
+            aria-label="Board text"
+          />
+        )}
       </div>
-    </section>
+    </div>
   )
 }
 
