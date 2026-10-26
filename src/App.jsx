@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowUpRight,
   Bookmark,
@@ -9,22 +9,30 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Circle,
   CirclePlus,
   Clock,
   Eraser,
   Flame,
   Layers3,
+  Minus,
   MoreHorizontal,
+  MousePointer2,
   Pencil,
   PenLine,
+  Redo2,
   RotateCcw,
   Search,
   Share2,
   Sparkles,
+  Square,
   Target,
   Trash2,
   Type,
+  Undo2,
   X,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react'
 import Dock from './components/Dock.jsx'
 import SettingsPage from './components/settings/settingsPage.jsx'
@@ -1234,79 +1242,524 @@ function TopicPage({ topic, book, entry, schedule, canvas, onSetCanvas, onBack, 
 
 const NODE_W = 132
 const NODE_H = 44
+const INK = '#1d2633'
+const BOARD_COLORS = ['#1d2633', '#d96855', '#4d88aa', '#bb8b3d', '#8265b3', '#98a3af']
+const BOARD_WIDTHS = [1.5, 3, 5]
+const FONT_BY_WIDTH = { 1.5: 13, 3: 15, 5: 19 }
+const ZOOM_MIN = 0.25
+const ZOOM_MAX = 4
+const clampZoom = (value) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, value))
+
 const BOARD_TOOLS = [
-  { id: 'write', label: 'Write', hint: 'Tap anywhere and start typing', icon: Type },
-  { id: 'draw', label: 'Draw', hint: 'Drag to sketch', icon: Pencil },
-  { id: 'mind', label: 'Mind map', hint: 'Tap for a node · tap two nodes to connect them', icon: Share2 },
-  { id: 'erase', label: 'Erase', hint: 'Tap anything to erase it', icon: Eraser },
+  { id: 'select', label: 'Select', icon: MousePointer2 },
+  { id: 'pen', label: 'Pen', icon: Pencil },
+  { id: 'rect', label: 'Rectangle', icon: Square },
+  { id: 'ellipse', label: 'Ellipse', icon: Circle },
+  { id: 'arrow', label: 'Arrow', icon: ArrowUpRight },
+  { id: 'line', label: 'Line', icon: Minus },
+  { id: 'text', label: 'Text', icon: Type },
+  { id: 'eraser', label: 'Eraser', icon: Eraser },
+  { id: 'mind', label: 'Mind map', icon: Share2 },
 ]
+
+function normalizeCanvas(canvas) {
+  return {
+    texts: (canvas.texts ?? []).map((t) => ({ ...t, color: t.color ?? INK, fontSize: t.fontSize ?? 15 })),
+    strokes: (canvas.strokes ?? []).map((s) => ({ ...s, color: s.color ?? INK, width: s.width ?? 2.5 })),
+    shapes: (canvas.shapes ?? []).map((s) => ({ ...s })),
+    nodes: (canvas.nodes ?? []).map((n) => ({ ...n })),
+    edges: (canvas.edges ?? []).map((e) => ({ ...e })),
+  }
+}
 
 function strokesPath(points) {
   return points.map((p, index) => `${index === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')
 }
 
-function TopicBoard({ canvas, onChange }) {
-  const boardRef = useRef(null)
-  const [tool, setTool] = useState('write')
+function normRect(shape) {
+  return { x: Math.min(shape.x, shape.x + shape.w), y: Math.min(shape.y, shape.y + shape.h), w: Math.abs(shape.w), h: Math.abs(shape.h) }
+}
+
+function arrowHeadPath(x1, y1, x2, y2, width) {
+  const angle = Math.atan2(y2 - y1, x2 - x1)
+  const len = 9 + width * 2
+  const spread = 0.42
+  const a1 = [x2 - len * Math.cos(angle - spread), y2 - len * Math.sin(angle - spread)]
+  const a2 = [x2 - len * Math.cos(angle + spread), y2 - len * Math.sin(angle + spread)]
+  return `M ${a1[0]} ${a1[1]} L ${x2} ${y2} L ${a2[0]} ${a2[1]}`
+}
+
+function distToSegment(p, a, b) {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const lenSq = dx * dx + dy * dy
+  if (lenSq === 0) return Math.hypot(p.x - a.x, p.y - a.y)
+  const t = Math.min(1, Math.max(0, ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq))
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy))
+}
+
+function textBounds(text) {
+  const firstLine = (text.text ?? '').split('\n')[0] ?? ''
+  return {
+    x: text.x,
+    y: text.y - 4,
+    w: Math.min(280, Math.max(24, firstLine.length * text.fontSize * 0.62)),
+    h: text.fontSize * 1.4 + 8,
+  }
+}
+
+function hitTest(canvas, p, tolerance = 7) {
+  const edges = canvas.edges.map((edge) => {
+    const a = canvas.nodes.find((n) => n.id === edge.from)
+    const b = canvas.nodes.find((n) => n.id === edge.to)
+    if (!a || !b) return null
+    return {
+      kind: 'edge', id: edge.id,
+      _a: { x: a.x + NODE_W / 2, y: a.y + NODE_H / 2 },
+      _b: { x: b.x + NODE_W / 2, y: b.y + NODE_H / 2 },
+    }
+  }).filter(Boolean)
+  const items = [
+    ...canvas.texts.map((t) => ({ kind: 'text', ...t })),
+    ...canvas.nodes.map((n) => ({ kind: 'node', ...n })),
+    ...canvas.strokes.map((s) => ({ kind: 'stroke', ...s })),
+    ...canvas.shapes.map((s) => ({ kind: 'shape', ...s })),
+    ...edges,
+  ]
+  for (let i = items.length - 1; i >= 0; i--) {
+    const el = items[i]
+    if (el.kind === 'stroke') {
+      const pts = el.points
+      for (let j = 0; j < pts.length - 1; j++) {
+        if (distToSegment(p, pts[j], pts[j + 1]) <= tolerance + el.width) return el
+      }
+      continue
+    }
+    if (el.kind === 'shape' && (el.type === 'line' || el.type === 'arrow')) {
+      if (distToSegment(p, { x: el.x, y: el.y }, { x: el.x + el.w, y: el.y + el.h }) <= tolerance + el.width) return el
+      continue
+    }
+    if (el.kind === 'edge') {
+      if (distToSegment(p, el._a, el._b) <= tolerance) return el
+      continue
+    }
+    if (el.kind === 'shape' && el.type === 'ellipse') {
+      const b = normRect(el)
+      const rx = Math.max(b.w / 2, 1)
+      const ry = Math.max(b.h / 2, 1)
+      const t = ((p.x - (b.x + rx)) ** 2) / (rx * rx) + ((p.y - (b.y + ry)) ** 2) / (ry * ry)
+      if (t <= 1 || Math.abs(Math.sqrt(t) - 1) * Math.min(rx, ry) <= tolerance) return el
+      continue
+    }
+    const b = el.kind === 'text' ? textBounds(el) : el.kind === 'node' ? { x: el.x, y: el.y, w: NODE_W, h: NODE_H } : normRect(el)
+    if (p.x >= b.x - tolerance && p.x <= b.x + b.w + tolerance && p.y >= b.y - tolerance && p.y <= b.y + b.h + tolerance) return el
+  }
+  return null
+}
+
+function ShapeNode({ shape }) {
+  const paint = {
+    stroke: shape.color,
+    strokeWidth: shape.width,
+    fill: shape.fill && shape.fill !== 'none' ? shape.fill : 'none',
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    filter: shape.rough ? 'url(#board-rough)' : undefined,
+  }
+  if (shape.type === 'rect') {
+    const b = normRect(shape)
+    return <rect x={b.x} y={b.y} width={b.w} height={b.h} rx={5} {...paint} />
+  }
+  if (shape.type === 'ellipse') {
+    const b = normRect(shape)
+    return <ellipse cx={b.x + b.w / 2} cy={b.y + b.h / 2} rx={Math.max(b.w / 2, 1)} ry={Math.max(b.h / 2, 1)} {...paint} />
+  }
+  if (shape.type === 'line') {
+    return <line x1={shape.x} y1={shape.y} x2={shape.x + shape.w} y2={shape.y + shape.h} {...paint} />
+  }
+  return (
+    <g>
+      <line x1={shape.x} y1={shape.y} x2={shape.x + shape.w} y2={shape.y + shape.h} {...paint} />
+      <path d={arrowHeadPath(shape.x, shape.y, shape.x + shape.w, shape.y + shape.h, shape.width)} fill={shape.color} stroke="none" />
+    </g>
+  )
+}
+
+function SelectionOutline({ shape, scale }) {
+  const base = shape.type === 'line' || shape.type === 'arrow'
+    ? { x: Math.min(shape.x, shape.x + shape.w), y: Math.min(shape.y, shape.y + shape.h), w: Math.abs(shape.w), h: Math.abs(shape.h) }
+    : normRect(shape)
+  const pad = 6 / scale
+  return (
+    <rect
+      x={base.x - pad} y={base.y - pad}
+      width={Math.max(base.w + pad * 2, 10)} height={Math.max(base.h + pad * 2, 10)}
+      rx={4} fill="none" stroke="rgba(217,104,85,.6)" strokeWidth={1.5 / scale}
+      strokeDasharray={`${5 / scale} ${4 / scale}`}
+    />
+  )
+}
+
+function TopicBoard({ canvas: rawCanvas, onChange }) {
+  const canvas = useMemo(() => normalizeCanvas(rawCanvas ?? { texts: [], strokes: [], shapes: [], nodes: [], edges: [] }), [rawCanvas])
+  const surfaceRef = useRef(null)
+  const [tool, setTool] = useState('select')
+  const [view, setView] = useState({ x: 0, y: 0, s: 1 })
+  const [selection, setSelection] = useState(null)
+  const [defaults, setDefaults] = useState({ color: INK, fill: 'none', width: 3, rough: false })
   const [textDraft, setTextDraft] = useState(null)
   const [nodeDraft, setNodeDraft] = useState(null)
-  const [selectedId, setSelectedId] = useState(null)
   const [liveStroke, setLiveStroke] = useState(null)
-  const strokeRef = useRef(null)
-  const dragRef = useRef(null)
-  const cancelRef = useRef(false)
+  const [draftShape, setDraftShape] = useState(null)
+  const [spaceHeld, setSpaceHeld] = useState(false)
+  const [panning, setPanning] = useState(false)
+  const [canUndo, setCanUndo] = useState(false)
+  const [canRedo, setCanRedo] = useState(false)
 
-  const point = (event) => {
-    const rect = boardRef.current.getBoundingClientRect()
-    return { x: Math.round(event.clientX - rect.left), y: Math.round(event.clientY - rect.top) }
+  const historyRef = useRef({ stack: [], index: -1 })
+  const gestureRef = useRef(null)
+  const strokeRef = useRef(null)
+  const draftRef = useRef(null)
+  const pointersRef = useRef(new Map())
+  const pinchRef = useRef(null)
+  const cancelRef = useRef(false)
+  const selectionRef = useRef(null)
+  const defaultsRef = useRef(defaults)
+  const viewRef = useRef(view)
+  selectionRef.current = selection
+  defaultsRef.current = defaults
+  viewRef.current = view
+
+  useEffect(() => {
+    historyRef.current = { stack: [JSON.stringify(normalizeCanvas(canvas))], index: 0 }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const syncHistoryFlags = () => {
+    setCanUndo(historyRef.current.index > 0)
+    setCanRedo(historyRef.current.index < historyRef.current.stack.length - 1)
+  }
+  const pushHistory = (next) => {
+    const h = historyRef.current
+    const snap = JSON.stringify(next)
+    if (h.stack[h.index] === snap) return
+    h.stack = h.stack.slice(0, h.index + 1)
+    h.stack.push(snap)
+    if (h.stack.length > 50) h.stack.shift()
+    h.index = h.stack.length - 1
+    syncHistoryFlags()
+  }
+  const commit = (mutator, { history = true } = {}) => {
+    onChange((raw) => {
+      const next = normalizeCanvas(raw)
+      mutator(next)
+      if (history) pushHistory(next)
+      return next
+    })
+  }
+  const undo = () => {
+    const h = historyRef.current
+    if (h.index <= 0) return
+    h.index -= 1
+    onChange(() => JSON.parse(h.stack[h.index]))
+    setSelection(null)
+    syncHistoryFlags()
+  }
+  const redo = () => {
+    const h = historyRef.current
+    if (h.index >= h.stack.length - 1) return
+    h.index += 1
+    onChange(() => JSON.parse(h.stack[h.index]))
+    setSelection(null)
+    syncHistoryFlags()
   }
 
-  const update = (mutator) => onChange((current) => {
-    const next = { texts: [...current.texts], nodes: [...current.nodes], edges: [...current.edges], strokes: [...current.strokes] }
-    mutator(next)
-    return next
+  const toWorld = (event) => {
+    const rect = surfaceRef.current.getBoundingClientRect()
+    return { x: (event.clientX - rect.left - viewRef.current.x) / viewRef.current.s, y: (event.clientY - rect.top - viewRef.current.y) / viewRef.current.s }
+  }
+  const zoomAt = (cx, cy, factor) => setView((v) => {
+    const s = clampZoom(v.s * factor)
+    return { s, x: cx - (cx - v.x) * (s / v.s), y: cy - (cy - v.y) * (s / v.s) }
   })
 
-  const onBackground = (event) => !event.target.closest('[data-el]') && !event.target.closest('[data-ui]')
+  useEffect(() => {
+    const el = surfaceRef.current
+    const onWheel = (event) => {
+      event.preventDefault()
+      const rect = el.getBoundingClientRect()
+      if (event.ctrlKey || event.metaKey) {
+        zoomAt(event.clientX - rect.left, event.clientY - rect.top, Math.exp(-event.deltaY * 0.0022))
+      } else {
+        setView((v) => ({ ...v, x: v.x - event.deltaX, y: v.y - event.deltaY }))
+      }
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  const onBoardPointerDown = (event) => {
-    if (!onBackground(event)) return
-    if (tool === 'draw') {
-      strokeRef.current = [point(event)]
-      setLiveStroke(strokeRef.current)
+  const deleteSelection = () => {
+    const sel = selectionRef.current
+    if (!sel) return
+    if (sel.kind === 'edge') commit((c) => { c.edges = c.edges.filter((e) => e.id !== sel.id) })
+    else if (sel.kind === 'node') commit((c) => { c.nodes = c.nodes.filter((n) => n.id !== sel.id); c.edges = c.edges.filter((e) => e.from !== sel.id && e.to !== sel.id) })
+    else if (sel.kind === 'text') commit((c) => { c.texts = c.texts.filter((t) => t.id !== sel.id) })
+    else if (sel.kind === 'stroke') commit((c) => { c.strokes = c.strokes.filter((s) => s.id !== sel.id) })
+    else if (sel.kind === 'shape') commit((c) => { c.shapes = c.shapes.filter((s) => s.id !== sel.id) })
+    setSelection(null)
+  }
+
+  const keyActionsRef = useRef({})
+  keyActionsRef.current = { undo, redo, deleteSelection }
+  useEffect(() => {
+    const isTyping = () => {
+      const el = document.activeElement
+      return Boolean(el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA'))
     }
-  }
-  const onBoardPointerMove = (event) => {
-    if (tool !== 'draw' || !strokeRef.current) return
-    const p = point(event)
-    const last = strokeRef.current[strokeRef.current.length - 1]
-    if (Math.hypot(p.x - last.x, p.y - last.y) > 2) {
-      strokeRef.current = [...strokeRef.current, p]
-      setLiveStroke(strokeRef.current)
+    const onKeyDown = (event) => {
+      if (event.code === 'Space' && !isTyping()) {
+        event.preventDefault()
+        setSpaceHeld(true)
+        return
+      }
+      if (isTyping()) return
+      const key = event.key.toLowerCase()
+      if ((event.ctrlKey || event.metaKey) && key === 'z') {
+        event.preventDefault()
+        if (event.shiftKey) keyActionsRef.current.redo()
+        else keyActionsRef.current.undo()
+        return
+      }
+      if ((event.ctrlKey || event.metaKey) && key === 'y') {
+        event.preventDefault()
+        keyActionsRef.current.redo()
+        return
+      }
+      if ((event.key === 'Delete' || event.key === 'Backspace') && selectionRef.current) {
+        event.preventDefault()
+        keyActionsRef.current.deleteSelection()
+      }
     }
+    const onKeyUp = (event) => {
+      if (event.code === 'Space') setSpaceHeld(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup', onKeyUp)
+    }
+  }, [])
+
+  const eraseAt = (p) => {
+    const hit = hitTest(canvas, p)
+    if (!hit) return
+    if (hit.kind === 'edge') commit((c) => { c.edges = c.edges.filter((e) => e.id !== hit.id) })
+    else if (hit.kind === 'node') commit((c) => { c.nodes = c.nodes.filter((n) => n.id !== hit.id); c.edges = c.edges.filter((e) => e.from !== hit.id && e.to !== hit.id) })
+    else if (hit.kind === 'text') commit((c) => { c.texts = c.texts.filter((t) => t.id !== hit.id) })
+    else if (hit.kind === 'stroke') commit((c) => { c.strokes = c.strokes.filter((s) => s.id !== hit.id) })
+    else if (hit.kind === 'shape') commit((c) => { c.shapes = c.shapes.filter((s) => s.id !== hit.id) })
   }
-  const onBoardPointerUp = () => {
-    if (tool !== 'draw' || !strokeRef.current) return
-    const points = strokeRef.current
-    if (points.length > 1) update((c) => { c.strokes.push({ id: `st-${Date.now()}`, points }) })
-    strokeRef.current = null
-    setLiveStroke(null)
-  }
-  const onBoardClick = (event) => {
-    if (!onBackground(event)) return
-    if (tool === 'write') {
-      setSelectedId(null)
-      const p = point(event)
+
+  const onPointerDown = (event) => {
+    if (event.target.closest('[data-ui]') || event.target.closest('input')) return
+    pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    if (pointersRef.current.size === 2) {
+      const [a, b] = [...pointersRef.current.values()]
+      gestureRef.current = null
+      strokeRef.current = null
+      draftRef.current = null
+      setLiveStroke(null)
+      setDraftShape(null)
+      pinchRef.current = { dist: Math.max(Math.hypot(a.x - b.x, a.y - b.y), 1), view: { ...viewRef.current } }
+      return
+    }
+    try { surfaceRef.current.setPointerCapture(event.pointerId) } catch { /* synthetic events may not capture */ }
+    if (event.button === 1 || (spaceHeld && tool === 'select')) {
+      event.preventDefault()
+      gestureRef.current = { kind: 'pan', startX: event.clientX, startY: event.clientY, view: { ...viewRef.current } }
+      setPanning(true)
+      return
+    }
+    if (event.button !== 0) return
+    const p = toWorld(event)
+
+    if (tool === 'select') {
+      const hit = hitTest(canvas, p)
+      setSelection(hit ? { kind: hit.kind, id: hit.id } : null)
+      if (hit && hit.kind !== 'edge') gestureRef.current = { kind: 'move', orig: { ...hit }, startX: p.x, startY: p.y }
+      return
+    }
+    if (tool === 'pen') {
+      gestureRef.current = { kind: 'draw-stroke' }
+      strokeRef.current = [p]
+      setLiveStroke(strokeRef.current)
+      return
+    }
+    if (tool === 'rect' || tool === 'ellipse' || tool === 'arrow' || tool === 'line') {
+      gestureRef.current = { kind: 'draw-shape' }
+      const draft = { type: tool, x: p.x, y: p.y, w: 0, h: 0, color: defaultsRef.current.color, fill: defaultsRef.current.fill, width: defaultsRef.current.width, rough: defaultsRef.current.rough }
+      draftRef.current = draft
+      setDraftShape(draft)
+      return
+    }
+    if (tool === 'text') {
+      setSelection(null)
       cancelRef.current = false
       setTextDraft({ x: p.x, y: p.y, value: '' })
-    } else if (tool === 'mind') {
-      setSelectedId(null)
-      const p = point(event)
+      return
+    }
+    if (tool === 'eraser') {
+      gestureRef.current = { kind: 'erase' }
+      eraseAt(p)
+      return
+    }
+    if (tool === 'mind') {
+      const hit = hitTest(canvas, p)
+      if (hit && hit.kind === 'node') {
+        const sel = selectionRef.current
+        if (sel && sel.kind === 'node' && sel.id !== hit.id && !canvas.edges.some((e) => (e.from === sel.id && e.to === hit.id) || (e.from === hit.id && e.to === sel.id))) {
+          commit((c) => { c.edges.push({ id: `eg-${Date.now()}`, from: sel.id, to: hit.id }) })
+        }
+        setSelection((current) => (current?.kind === 'node' && current.id === hit.id ? null : { kind: 'node', id: hit.id }))
+        return
+      }
+      setSelection(null)
       const id = `nd-${Date.now()}`
-      update((c) => { c.nodes.push({ id, x: p.x - NODE_W / 2, y: p.y - NODE_H / 2, label: '' }) })
+      commit((c) => { c.nodes.push({ id, x: p.x - NODE_W / 2, y: p.y - NODE_H / 2, label: '' }) }, { history: false })
       cancelRef.current = false
       setNodeDraft({ id, value: '', isNew: true })
     }
+  }
+
+  const onPointerMove = (event) => {
+    if (pointersRef.current.has(event.pointerId)) pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    if (pinchRef.current && pointersRef.current.size >= 2) {
+      const [a, b] = [...pointersRef.current.values()]
+      const dist = Math.max(Math.hypot(a.x - b.x, a.y - b.y), 1)
+      const start = pinchRef.current
+      const rect = surfaceRef.current.getBoundingClientRect()
+      const mid = { x: (a.x + b.x) / 2 - rect.left, y: (a.y + b.y) / 2 - rect.top }
+      const factor = clampZoom(dist / start.dist)
+      setView((v) => {
+        const s = clampZoom(start.view.s * factor)
+        return { s, x: mid.x - (mid.x - start.view.x) * (s / start.view.s), y: mid.y - (mid.y - start.view.y) * (s / start.view.s) }
+      })
+      return
+    }
+    const gesture = gestureRef.current
+    if (!gesture) return
+    if (gesture.kind === 'pan') {
+      setView({ s: gesture.view.s, x: gesture.view.x + (event.clientX - gesture.startX), y: gesture.view.y + (event.clientY - gesture.startY) })
+      return
+    }
+    const p = toWorld(event)
+    if (gesture.kind === 'move') {
+      const dx = p.x - gesture.startX
+      const dy = p.y - gesture.startY
+      const o = gesture.orig
+      commit((c) => {
+        if (o.kind === 'text') c.texts = c.texts.map((t) => t.id === o.id ? { ...t, x: o.x + dx, y: o.y + dy } : t)
+        else if (o.kind === 'node') c.nodes = c.nodes.map((n) => n.id === o.id ? { ...n, x: o.x + dx, y: o.y + dy } : n)
+        else if (o.kind === 'stroke') c.strokes = c.strokes.map((s) => s.id === o.id ? { ...s, points: o.points.map((pt) => ({ x: pt.x + dx, y: pt.y + dy })) } : s)
+        else if (o.kind === 'shape') c.shapes = c.shapes.map((s) => s.id === o.id ? { ...s, x: o.x + dx, y: o.y + dy } : s)
+      }, { history: false })
+      return
+    }
+    if (gesture.kind === 'draw-stroke') {
+      const last = strokeRef.current[strokeRef.current.length - 1]
+      if (Math.hypot(p.x - last.x, p.y - last.y) > 1.5) {
+        strokeRef.current = [...strokeRef.current, p]
+        setLiveStroke(strokeRef.current)
+      }
+      return
+    }
+    if (gesture.kind === 'draw-shape') {
+      const draft = { ...draftRef.current, w: p.x - draftRef.current.x, h: p.y - draftRef.current.y }
+      draftRef.current = draft
+      setDraftShape(draft)
+      return
+    }
+    if (gesture.kind === 'erase') eraseAt(p)
+  }
+
+  const onPointerUp = (event) => {
+    pointersRef.current.delete(event.pointerId)
+    if (pointersRef.current.size < 2) pinchRef.current = null
+    const gesture = gestureRef.current
+    if (!gesture) return
+    gestureRef.current = null
+    if (gesture.kind === 'pan') { setPanning(false); return }
+    if (gesture.kind === 'draw-stroke') {
+      const points = strokeRef.current ?? []
+      strokeRef.current = null
+      setLiveStroke(null)
+      if (points.length > 1) {
+        commit((c) => { c.strokes.push({ id: `st-${Date.now()}`, points, color: defaultsRef.current.color, width: defaultsRef.current.width, rough: defaultsRef.current.rough }) })
+      }
+      return
+    }
+    if (gesture.kind === 'draw-shape') {
+      const draft = draftRef.current
+      draftRef.current = null
+      setDraftShape(null)
+      if (draft) {
+        const isLine = draft.type === 'line' || draft.type === 'arrow'
+        const meaningful = isLine ? Math.hypot(draft.w, draft.h) > 4 : Math.abs(draft.w) > 4 && Math.abs(draft.h) > 4
+        if (meaningful) {
+          commit((c) => {
+            c.shapes.push(isLine
+              ? { ...draft, id: `sh-${Date.now()}` }
+              : { ...draft, x: Math.min(draft.x, draft.x + draft.w), y: Math.min(draft.y, draft.y + draft.h), w: Math.abs(draft.w), h: Math.abs(draft.h), id: `sh-${Date.now()}` })
+          })
+        }
+      }
+      return
+    }
+    if (gesture.kind === 'move' || gesture.kind === 'erase' || gesture.kind === 'resize') {
+      commit((c) => c, { history: true })
+    }
+  }
+
+  const startResize = (event, handle) => {
+    event.stopPropagation()
+    const shape = canvas.shapes.find((s) => s.id === selection?.id)
+    if (!shape) return
+    try { event.currentTarget.setPointerCapture(event.pointerId) } catch { /* ignore */ }
+    gestureRef.current = { kind: 'resize', shape: { ...shape }, handle }
+  }
+  const onHandleMove = (event) => {
+    const gesture = gestureRef.current
+    if (!gesture || gesture.kind !== 'resize') return
+    const p = toWorld(event)
+    const o = gesture.shape
+    if (o.type === 'line' || o.type === 'arrow') {
+      if (gesture.handle.index === 0) {
+        commit((c) => { c.shapes = c.shapes.map((s) => s.id === o.id ? { ...s, x: p.x, y: p.y, w: o.x + o.w - p.x, h: o.y + o.h - p.y } : s) }, { history: false })
+      } else {
+        commit((c) => { c.shapes = c.shapes.map((s) => s.id === o.id ? { ...s, w: p.x - o.x, h: p.y - o.y } : s) }, { history: false })
+      }
+      return
+    }
+    const anchor = gesture.handle.anchor
+    commit((c) => {
+      c.shapes = c.shapes.map((s) => s.id === o.id
+        ? { ...s, x: Math.min(anchor.x, p.x), y: Math.min(anchor.y, p.y), w: Math.abs(p.x - anchor.x), h: Math.abs(p.y - anchor.y) }
+        : s)
+    }, { history: false })
+  }
+  const onHandleUp = () => {
+    if (gestureRef.current?.kind === 'resize') commit((c) => c, { history: true })
+    gestureRef.current = null
+  }
+
+  const onSurfaceDoubleClick = (event) => {
+    if (event.target.closest('[data-ui]') || event.target.closest('input')) return
+    const hit = hitTest(canvas, toWorld(event))
+    if (!hit) return
+    if (hit.kind === 'text') { cancelRef.current = false; setTextDraft({ id: hit.id, x: hit.x, y: hit.y, value: hit.text }) }
+    if (hit.kind === 'node') { cancelRef.current = false; setNodeDraft({ id: hit.id, value: hit.label, isNew: false }) }
   }
 
   const commitText = () => {
@@ -1319,12 +1772,12 @@ function TopicBoard({ canvas, onChange }) {
     }
     const value = draft.value.trim()
     if (value) {
-      update((c) => {
+      commit((c) => {
         if (draft.id) c.texts = c.texts.map((t) => t.id === draft.id ? { ...t, text: draft.value } : t)
-        else c.texts.push({ id: `tx-${Date.now()}`, x: draft.x, y: draft.y, text: draft.value })
+        else c.texts.push({ id: `tx-${Date.now()}`, x: draft.x, y: draft.y, text: draft.value, color: defaultsRef.current.color, fontSize: FONT_BY_WIDTH[defaultsRef.current.width] ?? 15 })
       })
     } else if (draft.id) {
-      update((c) => { c.texts = c.texts.filter((t) => t.id !== draft.id) })
+      commit((c) => { c.texts = c.texts.filter((t) => t.id !== draft.id) })
     }
     setTextDraft(null)
   }
@@ -1336,9 +1789,9 @@ function TopicBoard({ canvas, onChange }) {
     cancelRef.current = false
     const value = cancelled ? '' : draft.value.trim()
     if (value) {
-      update((c) => { c.nodes = c.nodes.map((n) => n.id === draft.id ? { ...n, label: value } : n) })
-    } else if (draft.isNew || cancelled) {
-      update((c) => {
+      commit((c) => { c.nodes = c.nodes.map((n) => n.id === draft.id ? { ...n, label: value } : n) })
+    } else if (draft.isNew) {
+      commit((c) => {
         c.nodes = c.nodes.filter((n) => n.id !== draft.id)
         c.edges = c.edges.filter((e) => e.from !== draft.id && e.to !== draft.id)
       })
@@ -1346,58 +1799,77 @@ function TopicBoard({ canvas, onChange }) {
     setNodeDraft(null)
   }
 
-  const startNodeDrag = (event, node) => {
-    if (tool !== 'mind' || nodeDraft) return
-    event.stopPropagation()
-    const p = point(event)
-    dragRef.current = { id: node.id, dx: p.x - node.x, dy: p.y - node.y }
-    try { event.currentTarget.setPointerCapture(event.pointerId) } catch { /* synthetic events may not capture */ }
-  }
-  const onNodePointerMove = (event, node) => {
-    const drag = dragRef.current
-    if (!drag || drag.id !== node.id) return
-    const p = point(event)
-    update((c) => {
-      c.nodes = c.nodes.map((n) => n.id === node.id
-        ? { ...n, x: Math.max(0, p.x - drag.dx), y: Math.max(0, p.y - drag.dy) }
-        : n)
+  const applyProp = (prop, value) => {
+    setDefaults((current) => ({ ...current, [prop]: value }))
+    const sel = selectionRef.current
+    if (!sel) return
+    commit((c) => {
+      if (sel.kind === 'text') c.texts = c.texts.map((t) => t.id === sel.id ? { ...t, color: prop === 'color' ? value : t.color, fontSize: prop === 'width' ? (FONT_BY_WIDTH[value] ?? t.fontSize) : t.fontSize } : t)
+      else if (sel.kind === 'stroke') c.strokes = c.strokes.map((s) => s.id === sel.id ? { ...s, color: prop === 'color' ? value : s.color, width: prop === 'width' ? value : s.width, rough: prop === 'rough' ? value : s.rough } : s)
+      else if (sel.kind === 'shape') c.shapes = c.shapes.map((s) => s.id === sel.id ? { ...s, color: prop === 'color' ? value : s.color, fill: prop === 'fill' ? value : s.fill, width: prop === 'width' ? value : s.width, rough: prop === 'rough' ? value : s.rough } : s)
     })
   }
-  const endNodeDrag = () => { dragRef.current = null }
 
-  const onNodeClick = (event, node) => {
-    event.stopPropagation()
-    if (tool === 'erase') {
-      update((c) => {
-        c.nodes = c.nodes.filter((n) => n.id !== node.id)
-        c.edges = c.edges.filter((e) => e.from !== node.id && e.to !== node.id)
-      })
-      return
-    }
-    if (tool !== 'mind' || nodeDraft) return
-    if (selectedId && selectedId !== node.id && !canvas.edges.some((e) => (e.from === selectedId && e.to === node.id) || (e.from === node.id && e.to === selectedId))) {
-      update((c) => { c.edges.push({ id: `eg-${Date.now()}`, from: selectedId, to: node.id }) })
-    }
-    setSelectedId((current) => (current === node.id ? null : node.id))
+  const switchTool = (id) => {
+    setTool(id)
+    setSelection(null)
+    setLiveStroke(null)
+    setDraftShape(null)
+    strokeRef.current = null
+    draftRef.current = null
+    gestureRef.current = null
   }
 
-  const activeHint = BOARD_TOOLS.find((item) => item.id === tool).hint
+  const selShape = selection?.kind === 'shape' ? canvas.shapes.find((s) => s.id === selection.id) : null
+  const selStroke = selection?.kind === 'stroke' ? canvas.strokes.find((s) => s.id === selection.id) : null
+  const selText = selection?.kind === 'text' ? canvas.texts.find((t) => t.id === selection.id) : null
+  const selNode = selection?.kind === 'node' ? canvas.nodes.find((n) => n.id === selection.id) : null
+
+  const handles = []
+  if (selShape) {
+    if (selShape.type === 'rect' || selShape.type === 'ellipse') {
+      const b = normRect(selShape)
+      handles.push(
+        { x: b.x, y: b.y, anchor: { x: b.x + b.w, y: b.y + b.h } },
+        { x: b.x + b.w, y: b.y, anchor: { x: b.x, y: b.y + b.h } },
+        { x: b.x, y: b.y + b.h, anchor: { x: b.x + b.w, y: b.y } },
+        { x: b.x + b.w, y: b.y + b.h, anchor: { x: b.x, y: b.y } },
+      )
+    } else {
+      handles.push({ x: selShape.x, y: selShape.y, index: 0 }, { x: selShape.x + selShape.w, y: selShape.y + selShape.h, index: 1 })
+    }
+  }
+
+  const showProps = tool !== 'eraser' && (selection !== null || ['pen', 'rect', 'ellipse', 'arrow', 'line', 'text', 'mind'].includes(tool))
+  const activeFill = selShape ? selShape.fill : selText || selNode ? undefined : defaults.fill
+  const activeColor = selShape ? selShape.color : selStroke ? selStroke.color : selText ? selText.color : selNode ? undefined : defaults.color
+  const activeWidth = selShape ? selShape.width : selStroke ? selStroke.width : selText ? Object.entries(FONT_BY_WIDTH).find(([, size]) => size === selText.fontSize)?.[0] : selNode ? undefined : defaults.width
+  const activeRough = selShape ? Boolean(selShape.rough) : selStroke ? Boolean(selStroke.rough) : defaults.rough
 
   return (
     <div className="board-wrap">
       <div className="board-toolbar" data-ui>
         {BOARD_TOOLS.map(({ id, label, icon: Icon }) => (
-          <button key={id} className={`board-tool ${tool === id ? 'active' : ''}`} onClick={() => { setTool(id); setSelectedId(null) }} aria-label={label} aria-pressed={tool === id} title={label}>
+          <button key={id} className={`board-tool ${tool === id ? 'active' : ''}`} onClick={() => switchTool(id)} aria-label={label} aria-pressed={tool === id} title={label}>
             <Icon size={15} />
           </button>
         ))}
-        <span className="board-hint">{activeHint}</span>
+        <span className="board-sep" />
+        <button className="board-tool" onClick={undo} disabled={!canUndo} aria-label="Undo" title="Undo (Ctrl+Z)"><Undo2 size={15} /></button>
+        <button className="board-tool" onClick={redo} disabled={!canRedo} aria-label="Redo" title="Redo (Ctrl+Y)"><Redo2 size={15} /></button>
+        <span className="board-sep" />
         <button
           className="board-tool"
           onClick={() => {
             if (!window.confirm('Clear everything on this board?')) return
-            onChange(() => ({ texts: [], nodes: [], edges: [], strokes: [] }))
-            setSelectedId(null)
+            commit((c) => {
+              c.texts = []
+              c.strokes = []
+              c.shapes = []
+              c.nodes = []
+              c.edges = []
+            })
+            setSelection(null)
             setTextDraft(null)
             setNodeDraft(null)
           }}
@@ -1408,103 +1880,145 @@ function TopicBoard({ canvas, onChange }) {
         </button>
       </div>
 
+      {showProps && (
+        <div className="board-props" data-ui>
+          <div className="board-prop">
+            <span>Stroke</span>
+            <div className="board-swatches">
+              {BOARD_COLORS.map((color) => (
+                <button key={color} className={`board-swatch ${activeColor === color ? 'active' : ''}`} style={{ background: color }} onClick={() => applyProp('color', color)} aria-label={`Stroke ${color}`} title={color} />
+              ))}
+            </div>
+          </div>
+          <div className="board-prop">
+            <span>Fill</span>
+            <div className="board-swatches">
+              <button className={`board-swatch fill-none ${activeFill === 'none' ? 'active' : ''}`} onClick={() => applyProp('fill', 'none')} aria-label="No fill" title="No fill" />
+              {BOARD_COLORS.map((color) => (
+                <button key={color} className={`board-swatch ${activeFill === color ? 'active' : ''}`} style={{ background: color }} onClick={() => applyProp('fill', color)} aria-label={`Fill ${color}`} title={color} />
+              ))}
+              {BOARD_COLORS.map((color) => (
+                <button key={`${color}-soft`} className={`board-swatch ${activeFill === `${color}59` ? 'active' : ''}`} style={{ background: `${color}59` }} onClick={() => applyProp('fill', `${color}59`)} aria-label={`Translucent ${color}`} title={`Translucent ${color}`} />
+              ))}
+            </div>
+          </div>
+          <div className="board-prop">
+            <span>Width</span>
+            <div className="board-widths">
+              {BOARD_WIDTHS.map((width) => (
+                <button key={width} className={Number(activeWidth) === width ? 'active' : ''} onClick={() => applyProp('width', width)} aria-label={`Width ${width}`} title={width === 1.5 ? 'Thin' : width === 3 ? 'Medium' : 'Thick'}>
+                  <i style={{ height: width + 0.5, width: width + 8 }} />
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="board-prop">
+            <span>Style</span>
+            <button className={`board-rough-toggle ${activeRough ? 'active' : ''}`} onClick={() => applyProp('rough', !activeRough)} aria-pressed={activeRough} title="Hand-drawn style">
+              <PenLine size={13} /> Rough
+            </button>
+          </div>
+        </div>
+      )}
+
       <div
-        ref={boardRef}
-        className={`board-surface tool-${tool}`}
-        onPointerDown={onBoardPointerDown}
-        onPointerMove={onBoardPointerMove}
-        onPointerUp={onBoardPointerUp}
-        onPointerLeave={onBoardPointerUp}
-        onClick={onBoardClick}
+        ref={surfaceRef}
+        className={`board-surface tool-${tool} ${panning ? 'panning' : ''} ${spaceHeld && tool === 'select' ? 'pan-ready' : ''}`}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        onDoubleClick={onSurfaceDoubleClick}
       >
-        <svg className="board-svg" aria-hidden="true">
-          {canvas.edges.map((edge) => {
-            const from = canvas.nodes.find((n) => n.id === edge.from)
-            const to = canvas.nodes.find((n) => n.id === edge.to)
-            if (!from || !to) return null
-            return <line key={edge.id} className="board-edge" x1={from.x + NODE_W / 2} y1={from.y + NODE_H / 2} x2={to.x + NODE_W / 2} y2={to.y + NODE_H / 2} />
-          })}
-          {canvas.strokes.map((stroke) => (
-            <path
-              key={stroke.id}
-              className={`board-stroke ${tool === 'erase' ? 'erasable' : ''}`}
-              d={strokesPath(stroke.points)}
-              onClick={(event) => {
-                if (tool !== 'erase') return
-                event.stopPropagation()
-                update((c) => { c.strokes = c.strokes.filter((s) => s.id !== stroke.id) })
-              }}
-            />
+        <div className="board-canvas" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.s})` }}>
+          <svg className="board-svg" aria-hidden="true">
+            <defs>
+              <filter id="board-rough" x="-6%" y="-6%" width="112%" height="112%">
+                <feTurbulence type="fractalNoise" baseFrequency="0.015" numOctaves="2" seed="9" result="noise" />
+                <feDisplacementMap in="SourceGraphic" in2="noise" scale="2.6" />
+              </filter>
+            </defs>
+            {canvas.edges.map((edge) => {
+              const from = canvas.nodes.find((n) => n.id === edge.from)
+              const to = canvas.nodes.find((n) => n.id === edge.to)
+              if (!from || !to) return null
+              return <line key={edge.id} className="board-edge" x1={from.x + NODE_W / 2} y1={from.y + NODE_H / 2} x2={to.x + NODE_W / 2} y2={to.y + NODE_H / 2} />
+            })}
+            {canvas.shapes.map((shape) => <ShapeNode key={shape.id} shape={shape} />)}
+            {selShape && <SelectionOutline shape={selShape} scale={view.s} />}
+            {selStroke && <path d={strokesPath(selStroke.points)} fill="none" stroke="rgba(217,104,85,.35)" strokeWidth={selStroke.width + 6} strokeLinecap="round" strokeLinejoin="round" />}
+            {canvas.strokes.map((stroke) => (
+              <path key={stroke.id} className="board-stroke" d={strokesPath(stroke.points)} stroke={stroke.color} strokeWidth={stroke.width} filter={stroke.rough ? 'url(#board-rough)' : undefined} />
+            ))}
+            {draftShape && <ShapeNode shape={draftShape} />}
+            {liveStroke && <path className="board-stroke" d={strokesPath(liveStroke)} stroke={defaultsRef.current.color} strokeWidth={defaultsRef.current.width} />}
+          </svg>
+
+          {canvas.texts.map((text) => textDraft?.id === text.id ? null : (
+            <div
+              key={text.id}
+              className={`board-text ${selection?.kind === 'text' && selection.id === text.id ? 'selected' : ''}`}
+              style={{ left: text.x, top: text.y, color: text.color, fontSize: text.fontSize }}
+            >
+              {text.text}
+            </div>
           ))}
-          {liveStroke && <path className="board-stroke" d={strokesPath(liveStroke)} />}
-        </svg>
 
-        {canvas.texts.map((text) => textDraft?.id === text.id ? null : (
-          <div
-            key={text.id}
-            data-el
-            className="board-text"
-            style={{ left: text.x, top: text.y }}
-            onClick={(event) => {
-              event.stopPropagation()
-              if (tool === 'erase') update((c) => { c.texts = c.texts.filter((t) => t.id !== text.id) })
-              else if (tool === 'write' && !textDraft) { cancelRef.current = false; setTextDraft({ id: text.id, x: text.x, y: text.y, value: text.text }) }
-            }}
-          >
-            {text.text}
-          </div>
-        ))}
+          {canvas.nodes.map((node) => (
+            <div
+              key={node.id}
+              className={`board-node ${selection?.kind === 'node' && selection.id === node.id ? 'selected' : ''}`}
+              style={{ left: node.x, top: node.y, width: NODE_W, height: NODE_H }}
+            >
+              {nodeDraft?.id === node.id ? (
+                <input
+                  className="board-node-input"
+                  value={nodeDraft.value}
+                  autoFocus
+                  onChange={(event) => setNodeDraft({ ...nodeDraft, value: event.target.value })}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') commitNodeLabel()
+                    if (event.key === 'Escape') { cancelRef.current = true; commitNodeLabel() }
+                  }}
+                  onBlur={commitNodeLabel}
+                  aria-label="Node label"
+                />
+              ) : (
+                <span className="board-node-label">{node.label}</span>
+              )}
+            </div>
+          ))}
 
-        {canvas.nodes.map((node) => (
-          <div
-            key={node.id}
-            data-el
-            className={`board-node ${tool === 'mind' ? 'draggable' : ''} ${selectedId === node.id ? 'selected' : ''}`}
-            style={{ left: node.x, top: node.y, width: NODE_W, height: NODE_H }}
-            onPointerDown={(event) => startNodeDrag(event, node)}
-            onPointerMove={(event) => onNodePointerMove(event, node)}
-            onPointerUp={endNodeDrag}
-            onPointerCancel={endNodeDrag}
-            onClick={(event) => onNodeClick(event, node)}
-            onDoubleClick={(event) => {
-              event.stopPropagation()
-              if (tool === 'mind') { cancelRef.current = false; setNodeDraft({ id: node.id, value: node.label, isNew: false }) }
-            }}
-          >
-            {nodeDraft?.id === node.id ? (
-              <input
-                className="board-node-input"
-                value={nodeDraft.value}
-                autoFocus
-                onChange={(event) => setNodeDraft({ ...nodeDraft, value: event.target.value })}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') commitNodeLabel()
-                  if (event.key === 'Escape') { cancelRef.current = true; commitNodeLabel() }
-                }}
-                onBlur={commitNodeLabel}
-                aria-label="Node label"
-              />
-            ) : (
-              <span className="board-node-label">{node.label}</span>
-            )}
-          </div>
-        ))}
+          {textDraft && (
+            <input
+              className="board-input"
+              style={{ left: textDraft.x, top: textDraft.y, width: `${Math.max(6, textDraft.value.length + 1)}ch`, color: textDraft.id ? undefined : defaultsRef.current.color }}
+              value={textDraft.value}
+              autoFocus
+              onChange={(event) => setTextDraft({ ...textDraft, value: event.target.value })}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') commitText()
+                if (event.key === 'Escape') { cancelRef.current = true; commitText() }
+              }}
+              onBlur={commitText}
+              aria-label="Board text"
+            />
+          )}
+        </div>
 
-        {textDraft && (
-          <input
-            className="board-input"
-            style={{ left: textDraft.x, top: textDraft.y, width: `${Math.max(6, textDraft.value.length + 1)}ch` }}
-            value={textDraft.value}
-            autoFocus
-            onChange={(event) => setTextDraft({ ...textDraft, value: event.target.value })}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') commitText()
-              if (event.key === 'Escape') { cancelRef.current = true; commitText() }
-            }}
-            onBlur={commitText}
-            aria-label="Board text"
-          />
-        )}
+        <div className="board-overlay">
+          {handles.map((handle, index) => {
+            const sx = handle.x * view.s + view.x
+            const sy = handle.y * view.s + view.y
+            return <button key={index} data-ui className="board-handle" style={{ left: sx - 5, top: sy - 5 }} onPointerDown={(event) => startResize(event, handle)} onPointerMove={onHandleMove} onPointerUp={onHandleUp} aria-label="Resize handle" />
+          })}
+        </div>
+      </div>
+
+      <div className="board-zoom" data-ui>
+        <button onClick={() => zoomAt(surfaceRef.current.clientWidth / 2, surfaceRef.current.clientHeight / 2, 1 / 1.25)} aria-label="Zoom out"><ZoomOut size={14} /></button>
+        <button className="board-zoom-level" onClick={() => setView({ x: 0, y: 0, s: 1 })} title="Reset zoom">{Math.round(view.s * 100)}%</button>
+        <button onClick={() => zoomAt(surfaceRef.current.clientWidth / 2, surfaceRef.current.clientHeight / 2, 1.25)} aria-label="Zoom in"><ZoomIn size={14} /></button>
       </div>
     </div>
   )
