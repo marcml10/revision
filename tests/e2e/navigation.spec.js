@@ -71,6 +71,6 @@ test.describe('Primary navigation smoke', () => {
     await page.locator('.upcoming-review').first().click()
 
     await expect(page.getByRole('main').getByRole('button', { name: 'Learning React' })).toBeVisible()
-    await expect(page.getByRole('tab', { name: 'Board' })).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('tab', { name: 'Notes' })).toHaveAttribute('aria-selected', 'true')
   })
 })

@@ -46,16 +46,17 @@ describe('Sheet and tab accessibility', () => {
     await openTopic(user, 'Learning React', 'Hooks in depth')
 
     expect(screen.getByRole('tablist', { name: 'Topic spaces' })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: 'Board' })).toHaveAttribute('aria-selected', 'true')
-
-    await user.click(screen.getByRole('tab', { name: 'Notes' }))
     expect(screen.getByRole('tab', { name: 'Notes' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByRole('tab', { name: 'Board' })).toHaveAttribute('aria-selected', 'false')
+
+    await user.click(screen.getByRole('tab', { name: 'Board' }))
+    expect(screen.getByRole('tab', { name: 'Board' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: 'Notes' })).toHaveAttribute('aria-selected', 'false')
   })
 
   it('exposes board tools with pressed state', async () => {
     const { user } = renderWithBooks()
     await openTopic(user, 'Learning React', 'Hooks in depth')
+    await user.click(screen.getByRole('tab', { name: 'Board' }))
 
     const select = screen.getByRole('button', { name: 'Select' })
     expect(select).toHaveAttribute('aria-pressed', 'true')

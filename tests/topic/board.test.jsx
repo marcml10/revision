@@ -1,16 +1,17 @@
 import { screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { openTopic, renderWithBooks } from '../support/render-app.jsx'
+import { renderWithBooks } from '../support/render-app.jsx'
+import { openBoard } from '../support/navigation.js'
 
-const openBoard = async () => {
+const mountBoard = async () => {
   const app = renderWithBooks()
-  await openTopic(app.user, 'Learning React', 'Hooks in depth')
+  await openBoard(app.user)
   return app
 }
 
 describe('Topic board (smoke)', () => {
   it('renders the drawing tools and undo history controls', async () => {
-    await openBoard()
+    await mountBoard()
 
     for (const tool of ['Select', 'Pen', 'Rectangle', 'Ellipse', 'Arrow', 'Line', 'Text', 'Eraser', 'Mind map']) {
       expect(screen.getByRole('button', { name: tool })).toBeInTheDocument()
@@ -21,7 +22,7 @@ describe('Topic board (smoke)', () => {
   })
 
   it('marks the selected tool and reveals stroke settings', async () => {
-    const { user } = await openBoard()
+    const { user } = await mountBoard()
 
     const pen = screen.getByRole('button', { name: 'Pen' })
     await user.click(pen)
@@ -32,7 +33,7 @@ describe('Topic board (smoke)', () => {
   })
 
   it('shows fill options for closed shapes', async () => {
-    const { user } = await openBoard()
+    const { user } = await mountBoard()
 
     await user.click(screen.getByRole('button', { name: 'Rectangle' }))
 
@@ -41,7 +42,7 @@ describe('Topic board (smoke)', () => {
   })
 
   it('zooms in and out around the reset level', async () => {
-    const { user } = await openBoard()
+    const { user } = await mountBoard()
 
     expect(screen.getByTitle('Reset zoom')).toHaveTextContent('100%')
 
@@ -54,7 +55,7 @@ describe('Topic board (smoke)', () => {
   })
 
   it('packs and unpacks the toolbar', async () => {
-    const { user } = await openBoard()
+    const { user } = await mountBoard()
 
     await user.click(screen.getByRole('button', { name: 'Hide tools' }))
     expect(screen.queryByRole('button', { name: 'Pen' })).not.toBeInTheDocument()
@@ -64,7 +65,7 @@ describe('Topic board (smoke)', () => {
   })
 
   it('asks for confirmation before clearing the board', async () => {
-    const { user } = await openBoard()
+    const { user } = await mountBoard()
 
     await user.click(screen.getByRole('button', { name: 'Clear board' }))
     expect(window.confirm).toHaveBeenCalledWith('Clear everything on this board?')

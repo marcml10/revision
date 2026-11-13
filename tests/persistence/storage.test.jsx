@@ -1,6 +1,7 @@
 import { screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { dockButton, mainRegion, renderApp, renderWithBooks } from '../support/render-app.jsx'
+import { openNotes } from '../support/navigation.js'
 import { booksFixture, TODAY } from '../support/fixtures.js'
 
 const read = (key) => JSON.parse(window.localStorage.getItem(key))
@@ -32,17 +33,12 @@ describe('Local storage persistence', () => {
     expect(stored[0].topics[0].due).toBe(TODAY)
   })
 
-  it('persists checklist changes made through the UI', async () => {
+  it('persists topic notes made through the UI', async () => {
     const { user } = renderWithBooks()
-    await user.click(dockButton('Library'))
-    await user.click(mainRegion().getByRole('button', { name: 'Open Learning React' }))
-    await user.click(mainRegion().getByRole('button', { name: /^Hooks in depth/ }))
-    await user.click(screen.getByRole('tab', { name: 'Notes' }))
-    await user.type(screen.getByRole('textbox', { name: 'Add a checklist point' }), 'Review closures')
-    await user.click(screen.getByRole('button', { name: 'Add' }))
+    await openNotes(user)
+    await user.type(screen.getByRole('textbox', { name: 'Notes' }), 'Review closures')
 
-    expect(read('revision-checklists').t1.items[0].text).toBe('Review closures')
-    expect(read('revision-coverage').t1[TODAY]).toBe(0)
+    expect(read('revision-checklists').t1.note).toBe('Review closures')
   })
 
   it('persists settings and schedules across reloads', async () => {

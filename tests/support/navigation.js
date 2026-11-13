@@ -12,6 +12,11 @@ export const openNotes = async (user, bookTitle = 'Learning React', topicTitle =
   await user.click(screen.getByRole('tab', { name: 'Notes' }))
 }
 
+export const openBoard = async (user, bookTitle = 'Learning React', topicTitle = 'Hooks in depth') => {
+  await openTopic(user, bookTitle, topicTitle)
+  await user.click(screen.getByRole('tab', { name: 'Board' }))
+}
+
 export const openScheduleSheet = async (user, topicTitle = 'Hooks in depth') => {
   await user.click(screen.getByRole('button', { name: `Schedule ${topicTitle}` }))
   return screen.getByRole('dialog', { name: `Schedule review: ${topicTitle}` })
