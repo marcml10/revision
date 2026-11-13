@@ -400,15 +400,6 @@ function App() {
     })
   }
 
-  const addChecklistItem = (topicId, text) =>
-    mutateChecklist(topicId, (entry) => ({ ...entry, items: [...entry.items, { id: `it-${Date.now()}`, text, done: false }] }))
-
-  const toggleChecklistItem = (topicId, itemId) =>
-    mutateChecklist(topicId, (entry) => ({ ...entry, items: entry.items.map((item) => item.id === itemId ? { ...item, done: !item.done } : item) }))
-
-  const deleteChecklistItem = (topicId, itemId) =>
-    mutateChecklist(topicId, (entry) => ({ ...entry, items: entry.items.filter((item) => item.id !== itemId) }))
-
   const setTopicNote = (topicId, note) =>
     setChecklists((current) => ({
       ...current,
@@ -562,9 +553,6 @@ function App() {
             onAddTopic={(bookId) => setAddSheet({ type: 'topic', bookId })}
             onEditBook={(bookId) => setEditSheet({ type: 'book', bookId })}
             onEditTopic={openTopicEditor}
-            onAddItem={addChecklistItem}
-            onToggleItem={toggleChecklistItem}
-            onDeleteItem={deleteChecklistItem}
             onSetNote={setTopicNote}
           />
         ) : view === 'insights' ? (
@@ -812,7 +800,7 @@ function ScheduleSheet({ topic, schedule, defaultTime, onSave, onReset, onClose 
   )
 }
 
-function LibraryPage({ books, allTopics, query, onQueryChange, openBookId, openTopicId, onOpenBook, onOpenTopic, schedules, checklists, canvases, onSetCanvas, onSchedule, onAddBook, onAddTopic, onEditBook, onEditTopic, onAddItem, onToggleItem, onDeleteItem, onSetNote }) {
+function LibraryPage({ books, allTopics, query, onQueryChange, openBookId, openTopicId, onOpenBook, onOpenTopic, schedules, checklists, canvases, onSetCanvas, onSchedule, onAddBook, onAddTopic, onEditBook, onEditTopic, onSetNote }) {
   const openBook = books.find((book) => book.id === openBookId)
   const openTopic = openBook?.topics.find((topic) => topic.id === openTopicId)
 
@@ -826,9 +814,6 @@ function LibraryPage({ books, allTopics, query, onQueryChange, openBookId, openT
         canvas={canvases[openTopic.id]}
         onSetCanvas={(updater) => onSetCanvas(openTopic.id, updater)}
         onBack={() => onOpenTopic(null)}
-        onAddItem={onAddItem}
-        onToggleItem={onToggleItem}
-        onDeleteItem={onDeleteItem}
         onSetNote={onSetNote}
       />
     )
@@ -1186,18 +1171,10 @@ function HomePage({ topics, onSeeAll, schedules, checklists, onSchedule, onEditT
   )
 }
 
-function TopicPage({ topic, book, entry, canvas, onSetCanvas, onBack, onAddItem, onToggleItem, onDeleteItem, onSetNote }) {
-  const [draft, setDraft] = useState('')
-  const [space, setSpace] = useState('board')
-  const items = entry?.items ?? []
+function TopicPage({ topic, book, entry, canvas, onSetCanvas, onBack, onSetNote }) {
+  const [space, setSpace] = useState('notes')
   const note = entry?.note ?? ''
 
-  const submitItem = (event) => {
-    event.preventDefault()
-    if (!draft.trim()) return
-    onAddItem(topic.id, draft.trim())
-    setDraft('')
-  }
   return (
     <section className="page-section topic-page">
       <div className="topic-header">
@@ -1211,39 +1188,13 @@ function TopicPage({ topic, book, entry, canvas, onSetCanvas, onBack, onAddItem,
       {space === 'board' ? (
         <TopicBoard canvas={canvas ?? { texts: [], nodes: [], edges: [], strokes: [] }} onChange={onSetCanvas} />
       ) : (
-        <>
-          <div className="check-list">
-            {items.map((item) => (
-              <div key={item.id} className={`check-item ${item.done ? 'done' : ''}`}>
-                <button className="check-toggle" onClick={() => onToggleItem(topic.id, item.id)} aria-pressed={item.done} aria-label={`${item.done ? 'Untick' : 'Tick'} ${item.text}`}>
-                  <span className="check-box">{item.done && <Check size={13} />}</span>
-                  <span className="check-text">{item.text}</span>
-                </button>
-                <button className="check-remove" onClick={() => onDeleteItem(topic.id, item.id)} aria-label={`Remove ${item.text}`}><X size={13} /></button>
-              </div>
-            ))}
-            {items.length === 0 && <p className="empty-note">Nothing here yet — add your first point below.</p>}
-          </div>
-          <form className="check-add" onSubmit={submitItem}>
-            <CirclePlus size={16} />
-            <input
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={(event) => event.key === 'Enter' && submitItem(event)}
-              placeholder="Add a point…"
-              aria-label="Add a checklist point"
-            />
-            <button type="submit" disabled={!draft.trim()}>Add</button>
-          </form>
-
-          <textarea
-            className="note-area"
-            value={note}
-            onChange={(event) => onSetNote(topic.id, event.target.value)}
-            placeholder="Write freely…"
-            aria-label="Notes"
-          />
-        </>
+        <textarea
+          className="note-area"
+          value={note}
+          onChange={(event) => onSetNote(topic.id, event.target.value)}
+          placeholder="Write freely…"
+          aria-label="Notes"
+        />
       )}
     </section>
   )
