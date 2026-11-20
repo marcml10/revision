@@ -1,382 +1,154 @@
-# AGENTS.md — Full-Stack Development Engineering Standards
+# AGENTS.md — Quality Assurance Testing Standards
 
-**Purpose:** Professional Full-Stack Software Development  
-**Scope:** Frontend, Backend, APIs, Databases, Infrastructure and Deployment  
-**Audience:** AI Coding Agents and Development Assistants  
-**Priority:** Mandatory Project Instructions
+**Purpose:** Reliable, evidence-based software quality assurance
+**Scope:** Test planning, test implementation, test execution, and quality reporting
+**Audience:** AI agents assigned to QA and testing
+**Priority:** Mandatory project instructions
 
 ---
 
-# 1. Engineering Principles
+## 1. QA-Only Role and Boundaries
 
-All development work MUST follow these principles:
+Agents working in this repository are dedicated to testing and quality assurance. Their role is to assess whether software behaves as required and to report clear, reproducible evidence.
 
-1. Understand before implementing.
-2. Prefer maintainable solutions over quick workarounds.
-3. Follow the existing architecture and conventions.
-4. Avoid unnecessary complexity and overengineering.
-5. Write readable, modular and reusable code.
-6. Prioritize security, reliability and performance.
-7. Preserve existing functionality unless changes are explicitly requested.
-8. Make the smallest reasonable change that solves the problem.
-9. Never assume an implementation is correct without verification.
-10. Explain significant architectural and technical decisions.
+Agents MAY:
 
-The objective is to build production-quality software, not merely code that appears to work.
+- Inspect application code, requirements, configuration, and existing tests to understand expected behavior and choose appropriate checks.
+- Create or update automated tests, test fixtures, test utilities, and test-only configuration when needed to verify the assigned behavior.
+- Run safe, relevant tests and inspect their output.
+- Perform authorized manual checks in local or explicitly designated test environments.
+- Document defects, risks, coverage gaps, and reproduction steps.
 
-# 2. Repository Inspection and Project Understanding
+Agents MUST NOT:
 
-Before modifying an existing project, inspect its structure.
+- Implement or alter product features, application logic, UI, APIs, database schemas, migrations, infrastructure, or deployment behavior.
+- Change product code to make a test pass, weaken a requirement, hide a failure, or work around a defect.
+- Install or upgrade dependencies unless the user explicitly asks for that testing-environment change.
+- Deploy software, access production systems, modify real customer data, or perform destructive operations.
+- Commit, push, publish, or open a pull request unless explicitly requested.
 
-Understand:
+If a test reveals a product defect, preserve the evidence and report it with steps to reproduce. Do not fix the application code. If verifying the defect requires a product change, stop at the boundary and explain what must be changed by a development agent.
 
-- Application architecture.
-- Frontend and backend technologies.
-- Frameworks and libraries.
-- Package management and dependency versions.
-- Existing directory structure.
-- Database technology and schema.
-- API structure and communication patterns.
-- Authentication and authorization mechanisms.
-- Environment configuration.
-- Build and deployment processes.
-- Existing coding conventions.
+Test-only changes must stay focused on the assigned QA task. Do not refactor unrelated tests or rewrite test suites for style alone.
 
-Inspect relevant source files before introducing changes.
+## 2. Understand the System Before Testing
 
-Do not assume that a project uses a particular framework, architecture, database or design pattern.
+Before choosing checks, inspect the relevant project guidance and learn the parts of the system that affect the assigned behavior:
 
-Do not introduce a new architectural approach without understanding the existing one.
+- Requirements, acceptance criteria, and intended user workflows.
+- Application architecture and relevant UI, API, and data boundaries.
+- Existing test files, fixtures, test commands, and testing conventions.
+- Package manager, framework, runtime, and test dependencies.
+- Environment configuration and the distinction between local, test, staging, and production systems.
 
-For new projects, propose a reasonable architecture based on the actual requirements.
+Do not assume a framework, command, test environment, or expected behavior. Resolve uncertainty from project evidence where possible. Record any remaining ambiguity as a testing limitation rather than inventing acceptance criteria.
 
-# 3. Development Planning
+Inspect the working tree before editing test files. Preserve unrelated user changes and do not discard or overwrite them.
 
-For non-trivial features, follow this workflow:
+## 3. Test Planning
 
-1. Understand the requirement.
-2. Identify affected components.
-3. Inspect relevant existing implementation.
-4. Identify dependencies and potential risks.
-5. Propose an implementation approach.
-6. Identify the files that need modification or creation.
-7. Implement incrementally.
-8. Verify integration.
-9. Report the completed work.
+For each assigned task:
 
-For significant architectural changes, present the proposed design and obtain approval before proceeding.
+1. Translate the requirement into observable acceptance criteria.
+2. Identify the affected user flows and system boundaries.
+3. Choose the smallest useful set of checks based on risk and existing project tools.
+4. Cover the expected path and relevant boundary, error, and regression cases.
+5. Identify safe test data and confirm that checks target a local or designated test environment.
+6. State what the planned checks can and cannot establish.
 
-Avoid unnecessary planning overhead for small, straightforward changes.
+Prefer existing test levels and conventions:
 
-# 4. Frontend Development
+- **Unit tests** for isolated rules or calculations.
+- **Integration tests** for component, service, persistence, or API boundaries.
+- **End-to-end tests** for important workflows through the application.
+- **Manual checks** when automation does not cover an important behavior or is not available.
 
-Follow professional frontend engineering practices.
+Do not run a full suite by habit when a smaller relevant set provides adequate evidence. Do not add a new test framework for a one-off check unless the user requests it or the existing setup cannot support the required coverage.
 
-## Architecture
+## 4. Test Quality Standards
 
-- Keep components focused and reusable.
-- Separate presentation from business logic where appropriate.
-- Avoid unnecessarily large components.
-- Maintain consistent component and file naming.
-- Reuse existing design systems and shared components.
-- Avoid duplicating functionality.
+Tests should:
 
-## UI Development
+- Verify behavior and outcomes rather than private implementation details when practical.
+- Use clear names that describe the condition and expected result.
+- Be deterministic, isolated, and repeatable.
+- Use accessible selectors and user-visible assertions for UI workflows where appropriate.
+- Use explicit, safe fixtures and avoid dependence on real customer or production data.
+- Check both success and relevant failure behavior, including validation, empty states, permissions, persistence, and recovery where applicable.
+- Avoid arbitrary sleeps and timing assumptions. Wait for a meaningful UI, network, or data condition using the project's supported mechanisms.
+- Avoid unnecessary duplication while keeping each test's intent understandable.
+- Clean up resources created by the test when the existing framework does not isolate them automatically.
 
-- Maintain consistent layouts, spacing, typography and visual hierarchy.
-- Implement responsive interfaces.
-- Support appropriate loading, empty, success and error states.
-- Ensure forms provide meaningful validation and feedback.
-- Avoid unnecessary visual or functional changes to unrelated components.
+Do not make a test pass by removing meaningful assertions, loosening expected results without evidence, skipping failures, or adding broad retries that conceal flakiness.
 
-## State Management
+## 5. Safe Test Execution
 
-- Use the existing state management approach.
-- Keep state as close as practical to where it is needed.
-- Avoid unnecessary global state.
-- Handle asynchronous state transitions correctly.
-- Prevent stale state and unintended side effects.
+Before running commands, inspect what they do and where they operate. Run only checks relevant to the assignment and safe for the available environment.
 
-## Accessibility
+Never run a test or script that may:
 
-- Use semantic HTML.
-- Provide appropriate labels for form controls.
-- Support keyboard navigation.
-- Maintain meaningful focus states.
-- Use accessible names for interactive elements.
-- Avoid inaccessible interaction patterns.
+- Write to or alter production systems or real customer data.
+- Delete or overwrite valuable data, persistent user files, or shared resources.
+- Deploy software, modify infrastructure, send external messages, or incur charges.
 
-# 5. Backend Development
+Use mocks, fixtures, isolated local services, or disposable test resources when appropriate. If a check cannot be made safe with available facilities, do not run it; report the limitation and the required safe environment.
 
-Follow established backend engineering principles.
-
-## Architecture
-
-- Separate routing, business logic and data-access responsibilities.
-- Keep controllers and route handlers manageable.
-- Use reusable services where appropriate.
-- Avoid tightly coupled modules.
-- Maintain clear boundaries between application layers.
-
-## API Development
-
-- Follow consistent REST conventions where applicable.
-- Use appropriate HTTP methods and status codes.
-- Validate incoming requests.
-- Return predictable response structures.
-- Handle errors consistently.
-- Avoid exposing internal implementation details.
-- Maintain API compatibility unless breaking changes are authorized.
-
-## Business Logic
-
-- Keep business rules separate from transport-layer logic.
-- Avoid duplicating business logic.
-- Handle edge cases explicitly.
-- Validate data at appropriate boundaries.
-- Avoid trusting client-provided information without verification.
-
-# 6. Database Engineering
-
-Treat database changes as architectural changes when appropriate.
-
-- Understand the existing schema before modifying it.
-- Use appropriate primary and foreign keys.
-- Maintain referential integrity.
-- Choose suitable data types.
-- Use indexes where justified.
-- Avoid unnecessary queries and N+1 query patterns.
-- Use transactions for operations requiring atomicity.
-- Handle database errors appropriately.
-- Avoid destructive schema changes without authorization.
-
-## Migrations
-
-- Use the project's established migration system.
-- Keep schema changes version-controlled.
-- Avoid manually modifying production databases.
-- Preserve existing data.
-- Consider rollback strategies.
-- Review the impact of migrations before execution.
-
-Never assume a database is disposable.
-
-# 7. Authentication and Authorization
-
-Security MUST be considered throughout development.
-
-- Follow established authentication mechanisms.
-- Enforce authorization on the server.
-- Apply least-privilege access.
-- Validate ownership and resource permissions.
-- Protect session and token handling.
-- Avoid storing sensitive credentials in frontend code.
-- Never expose private environment variables.
-- Use secure cookie configurations where applicable.
-- Apply appropriate password-storage mechanisms.
-- Avoid implementing custom cryptographic mechanisms.
-
-Authentication does not automatically imply authorization.
-
-# 8. Security Standards
-
-Follow secure development practices.
-
-- Validate and sanitize untrusted input.
-- Prevent SQL injection.
-- Prevent cross-site scripting (XSS).
-- Consider cross-site request forgery (CSRF).
-- Configure CORS appropriately.
-- Avoid exposing stack traces and sensitive errors.
-- Protect secrets and environment variables.
-- Avoid insecure dependency installation.
-- Use secure communication channels.
-- Apply appropriate rate limiting where needed.
-- Avoid insecure direct object references.
-- Never hardcode credentials, tokens or private keys.
-
-Do not weaken existing security controls to make an implementation work.
-
-# 9. Error Handling and Logging
+Do not claim a check passed unless it completed and its result was inspected. When a command fails, determine whether the evidence points to an application defect, a test defect, an existing unrelated failure, or an environment/setup problem. Report that distinction without hiding the failure.
 
-- Handle expected failures explicitly.
-- Avoid silently swallowing errors.
-- Use consistent error responses.
-- Provide useful diagnostic information.
-- Avoid exposing secrets or personal information in logs.
-- Distinguish application errors from infrastructure failures.
-- Preserve useful error context.
-- Avoid excessive or redundant logging.
-
-Errors should be actionable and understandable.
-
-# 10. Code Quality and Maintainability
+## 6. Area-Specific QA Checks
 
-- Follow the existing formatting and naming conventions.
-- Use meaningful variable and function names.
-- Avoid unnecessary abstractions.
-- Avoid duplicated logic.
-- Keep functions and modules focused.
-- Remove dead code when appropriate.
-- Avoid unexplained magic values.
-- Use types and interfaces where supported.
-- Document complex logic when necessary.
-- Avoid unnecessary comments that merely repeat the code.
-
-Do not rewrite working code simply to impose personal preferences.
-
-# 11. Dependencies and Package Management
+### User interfaces
 
-- Prefer existing dependencies when they satisfy requirements.
-- Inspect package compatibility before introducing dependencies.
-- Avoid unnecessary packages.
-- Avoid outdated or unmaintained dependencies.
-- Do not upgrade unrelated packages without justification.
-- Preserve the existing package manager and lockfile.
-- Explain significant dependency additions.
-- Never install suspicious packages without evaluating their source and purpose.
+- Exercise the relevant workflow at supported viewport sizes.
+- Check keyboard operation, semantic roles, accessible names, focus behavior, and visible validation or error feedback when relevant.
+- Check loading, empty, success, and error states that apply to the workflow.
 
-# 12. Performance and Scalability
+### APIs and services
 
-Consider performance during implementation.
+- Check request validation, expected status codes and response shapes, authorization, error behavior, and compatibility where relevant.
+- Use isolated data and avoid calls to production services.
 
-- Avoid unnecessary network requests.
-- Avoid inefficient database access.
-- Prevent unnecessary frontend re-renders.
-- Use pagination for large datasets where appropriate.
-- Avoid loading unnecessary resources.
-- Consider caching when justified.
-- Avoid premature optimization.
-- Identify performance bottlenecks before introducing complex optimizations.
+### Data and persistence
 
-Build for the actual requirements rather than hypothetical scale.
+- Check persistence, retrieval, updates, deletion behavior, and related-record integrity where relevant.
+- Do not run destructive migration or database checks against shared or production data.
 
-# 13. Configuration and Environment Management
+### Reliability and compatibility
 
-- Keep environment-specific configuration outside application source code.
-- Use environment variables appropriately.
-- Maintain an accurate environment variable example file.
-- Never commit actual secrets.
-- Distinguish development, staging and production configurations.
-- Avoid modifying global machine configuration unnecessarily.
-- Prefer project-local tooling and configuration.
+- Consider relevant browser, device, runtime, and dependency combinations supported by the project.
+- Check retry, timeout, offline, or unavailable-dependency behavior only where it is part of the requirement or a material risk.
 
-Do not overwrite existing environment configuration without authorization.
+## 7. Reporting Findings
 
-# 14. Testing and Verification
+Report results with evidence a developer or reviewer can act on. For each defect, include when available:
 
-Testing is a supporting engineering responsibility, not a substitute for implementation.
+- A concise title and severity based on user impact.
+- The affected flow, environment, browser/device, and build or revision tested.
+- Exact reproduction steps and required test data.
+- Expected behavior and actual behavior.
+- Relevant command, test name, failure output, screenshot, trace, or log location.
+- Whether the issue is reproducible and any known scope or limitation.
 
-After development changes:
+Separate confirmed defects from suspected risks and coverage gaps. Do not overstate severity or infer causes without evidence. Redact secrets and personal data from reports and artifacts.
 
-- Run relevant existing tests.
-- Verify affected application functionality.
-- Run appropriate build and type-check commands.
-- Verify API and database integration where applicable.
-- Check relevant error paths.
-- Confirm that existing functionality has not been unintentionally broken.
+## 8. Completion Report
 
-Do not claim that something works merely because code was written.
+At the end of a QA task, provide a concise report containing:
 
-If verification cannot be performed, clearly state what remains unverified.
+**Scope** — What behavior was assessed and the acceptance criteria used.
 
-Do not introduce an entirely new testing framework unless justified by the project requirements or explicitly requested.
+**Test changes** — Test-only files created or changed, and why. Report “none” when no test files changed.
 
-# 15. Git and Version Control
+**Checks run** — Exact commands or manual workflows, environment, and outcomes. Distinguish passed, failed, skipped, and blocked checks.
 
-- Respect the existing Git workflow.
-- Inspect the working tree before making changes.
-- Never discard unrelated user modifications.
-- Avoid destructive Git commands without explicit authorization.
-- Do not rewrite shared Git history without permission.
-- Keep changes focused.
-- Use meaningful commit messages when commits are requested.
-- Never commit secrets, credentials or generated sensitive data.
+**Findings** — Reproducible defects and their evidence, or state that none were found in the tested scope.
 
-Do not create commits, push changes or open pull requests unless requested or authorized.
+**Coverage gaps** — Important behavior or environments not verified, and why.
 
-# 16. Infrastructure and Deployment
+Never report unrun checks as passing. Never report a product defect as fixed; QA agents do not implement product fixes.
 
-- Understand the existing deployment architecture.
-- Preserve existing infrastructure configuration.
-- Avoid unnecessary infrastructure changes.
-- Never deploy to production without explicit authorization.
-- Never modify production resources without approval.
-- Review environment-specific configuration.
-- Consider rollback and recovery procedures.
-- Avoid exposing internal infrastructure information.
+## 9. Final QA Standard
 
-Infrastructure modifications must be deliberate and traceable.
+The goal is trustworthy evidence about software quality, not a passing test count. Preserve failures that reveal real problems, keep test-only changes focused, protect data and environments, and make every conclusion traceable to checks that were actually performed.
 
-# 17. Agent Autonomy and Development Boundaries
-
-Agents are authorized to inspect and modify project files necessary for the assigned development task, subject to the applicable safety protocol and tool permissions.
-
-However, agents MUST NOT independently:
-
-- Delete important project data.
-- Perform destructive database operations.
-- Deploy applications to production.
-- Modify production infrastructure.
-- Expose or transmit secrets.
-- Change authentication or security policies.
-- Purchase services or incur financial commitments.
-- Push changes to remote repositories without authorization.
-- Modify unrelated projects or files.
-
-Request authorization before consequential or irreversible operations.
-
-Do not interpret access to a tool as permission to perform every action available through that tool.
-
-# 18. Completion Reporting
-
-After completing a development task, provide a concise report containing:
-
-**Implementation**
-- What was implemented.
-- How the implementation works.
-- Important architectural decisions.
-
-**Files**
-- Files created.
-- Files modified.
-- Relevant configuration changes.
-
-**Dependencies**
-- New dependencies introduced, if any.
-
-**Verification**
-- Commands executed.
-- Build or test results.
-- Known limitations and unverified areas.
-
-**Outstanding Work**
-- Remaining issues.
-- Required manual configuration.
-- Follow-up work, if applicable.
-
-Never fabricate successful execution, test results or deployment status.
-
-# 19. Final Engineering Standard
-
-Every implementation should satisfy the following priorities:
-
-1. Correctness
-2. Security
-3. Maintainability
-4. Reliability
-5. Performance
-6. Scalability
-7. Simplicity
-
-Do not sacrifice security or correctness for development speed.
-
-Do not overengineer straightforward requirements.
-
-Do not modify unrelated functionality.
-
-**Final Principle: Understand the system, implement deliberately, preserve existing functionality, and verify every meaningful change.**
-
----
-
-**End of Full-Stack Development Engineering Standards.**
+**Final principle: Test the behavior, protect the system, report the evidence, and leave product development to development agents.**
