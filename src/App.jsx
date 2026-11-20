@@ -476,6 +476,16 @@ function App() {
       book.topics.forEach((topic) => delete next[topic.id])
       return next
     })
+    setChecklists((current) => {
+      const next = { ...current }
+      book.topics.forEach((topic) => delete next[topic.id])
+      return next
+    })
+    setCoverageLog((current) => {
+      const next = { ...current }
+      book.topics.forEach((topic) => delete next[topic.id])
+      return next
+    })
     setCanvases((current) => {
       const next = { ...current }
       book.topics.forEach((topic) => delete next[topic.id])
@@ -504,6 +514,16 @@ function App() {
     }
     if (!window.confirm(`Delete "${topic.title}"? Its schedule will be removed too.`)) return
     setSchedules((current) => {
+      const next = { ...current }
+      delete next[topicId]
+      return next
+    })
+    setChecklists((current) => {
+      const next = { ...current }
+      delete next[topicId]
+      return next
+    })
+    setCoverageLog((current) => {
       const next = { ...current }
       delete next[topicId]
       return next
