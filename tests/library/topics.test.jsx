@@ -13,6 +13,10 @@ describe('Topic management', () => {
     const save = screen.getByRole('button', { name: 'Add topic' })
     expect(save).toBeDisabled()
 
+    await user.type(screen.getByLabelText('Topic title'), '   ')
+    expect(save).toBeDisabled()
+    await user.clear(screen.getByLabelText('Topic title'))
+
     await user.type(screen.getByLabelText('Topic title'), 'Effects and refs')
     await user.type(screen.getByLabelText('Chapter or unit, optional'), 'Ch 8')
     await user.click(save)

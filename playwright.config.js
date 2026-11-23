@@ -10,8 +10,16 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
-    { name: 'mobile-chromium', use: { ...devices['Pixel 7'] } },
+    {
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
+      testIgnore: ['**/*.mobile.spec.js'],
+    },
+    {
+      name: 'mobile-chromium',
+      use: { ...devices['Pixel 7'] },
+      testMatch: ['**/*.mobile.spec.js'],
+    },
   ],
   webServer: {
     command: 'npm run dev -- --port 5183 --strictPort --host 127.0.0.1',

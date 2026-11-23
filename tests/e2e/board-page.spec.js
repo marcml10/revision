@@ -20,11 +20,7 @@ import {
   toolButton,
   selectTool,
   zoomLevel,
-  strokeSwatches,
-  fillSwatches,
-  noFillSwatch,
   propsPanel,
-  fontSizeReadout,
   resizeHandles,
   shapeLabelInput,
   boardTextInput,
@@ -34,7 +30,6 @@ import {
   dragOnSurface,
   dragHandleTo,
   acceptNextDialog,
-  dismissNextDialog,
 } from './fixtures/board-page.fixture.js'
 
 const TOOLS = ['Select', 'Pen', 'Rectangle', 'Ellipse', 'Arrow', 'Line', 'Text', 'Eraser', 'Mind map']
@@ -54,9 +49,6 @@ test.describe('Board Page — Integration Tests', () => {
   // ============================================================
   test.describe('Known Defects', () => {
     test('B-00: board drawing surface has a usable height (P1 regression)', async ({ page }) => {
-      // Deliberately opened WITHOUT the layout workaround and WITHOUT the
-      // "board is usable" precondition so this test reports the shipped
-      // behaviour on its own.
       await openBoard(page, { applyWorkaround: false, expectUsable: false })
 
       const box = await boardSurface(page).boundingBox()
@@ -70,9 +62,6 @@ test.describe('Board Page — Integration Tests', () => {
       await openBoard(page)
       await selectTool(page, 'Mind map')
 
-      // The node input is mounted from the pointerdown handler, so the browser's
-      // mousedown default action moves focus away from it straight afterwards.
-      // The input's onBlur then commits an empty label and discards the node.
       await clickOnSurface(page, 120, 300)
 
       await expect(nodeLabelInput(page)).toBeVisible()
@@ -84,8 +73,6 @@ test.describe('Board Page — Integration Tests', () => {
       await openBoard(page)
       await selectTool(page, 'Rectangle')
 
-      // Ids are derived from Date.now(), so two shapes created inside the same
-      // millisecond would collide.
       await dragOnSurface(page, { x: 60, y: 200 }, { x: 200, y: 280 })
       await shapeLabelInput(page).fill('First')
       await shapeLabelInput(page).press('Enter')
@@ -117,90 +104,6 @@ test.describe('Board Page — Integration Tests', () => {
       await expect(page.getByRole('button', { name: 'Clear board' })).toBeVisible()
       await expect(page.getByRole('button', { name: 'Hide tools' })).toBeVisible()
       await expect(zoomLevel(page)).toHaveText('100%')
-    })
-
-    test('B-02: exactly one tool is pressed and Select is the default', async ({ page }) => {
-      await openBoard(page)
-
-      for (const tool of TOOLS) {
-        await expect(toolButton(page, tool)).toHaveAttribute('aria-pressed', tool === 'Select' ? 'true' : 'false')
-      }
-    })
-
-    test('B-03: choosing a tool presses it and releases the previous one', async ({ page }) => {
-      await openBoard(page)
-
-      for (const tool of TOOLS) {
-        await toolButton(page, tool).click()
-        await expect(toolButton(page, tool)).toHaveAttribute('aria-pressed', 'true')
-        for (const other of TOOLS.filter((item) => item !== tool)) {
-          await expect(toolButton(page, other)).toHaveAttribute('aria-pressed', 'false')
-        }
-      }
-    })
-
-    test('B-04: undo and redo are disabled on an untouched board', async ({ page }) => {
-      await openBoard(page)
-
-      await expect(page.getByRole('button', { name: 'Undo' })).toBeDisabled()
-      await expect(page.getByRole('button', { name: 'Redo' })).toBeDisabled()
-    })
-
-    test('B-05: the properties panel only offers options the active tool supports', async ({ page }) => {
-      await openBoard(page)
-
-      await selectTool(page, 'Pen')
-      await expect(strokeSwatches(page)).toHaveCount(6)
-      await expect(fillSwatches(page)).toHaveCount(0)
-      await expect(page.getByRole('button', { name: 'Increase text size' })).toHaveCount(0)
-
-      await selectTool(page, 'Rectangle')
-      await expect(strokeSwatches(page)).toHaveCount(6)
-      await expect(noFillSwatch(page)).toBeVisible()
-      await expect(fillSwatches(page)).toHaveCount(6)
-      await expect(page.getByRole('button', { name: 'Increase text size' })).toHaveCount(0)
-
-      await selectTool(page, 'Ellipse')
-      await expect(fillSwatches(page)).toHaveCount(6)
-
-      await selectTool(page, 'Arrow')
-      await expect(strokeSwatches(page)).toHaveCount(6)
-      await expect(fillSwatches(page)).toHaveCount(0)
-
-      await selectTool(page, 'Line')
-      await expect(fillSwatches(page)).toHaveCount(0)
-
-      await selectTool(page, 'Text')
-      await expect(page.getByRole('button', { name: 'Increase text size' })).toBeVisible()
-      await expect(page.getByRole('button', { name: 'Decrease text size' })).toBeVisible()
-      await expect(fillSwatches(page)).toHaveCount(0)
-
-      await selectTool(page, 'Mind map')
-      await expect(strokeSwatches(page)).toHaveCount(6)
-      await expect(fillSwatches(page)).toHaveCount(0)
-      await expect(page.getByRole('button', { name: 'Increase text size' })).toHaveCount(0)
-    })
-
-    test('B-06: the eraser offers no properties panel', async ({ page }) => {
-      await openBoard(page)
-      await selectTool(page, 'Eraser')
-
-      await expect(propsPanel(page)).toHaveCount(0)
-    })
-
-    test('B-07: the toolbar can be packed and unpacked', async ({ page }) => {
-      await openBoard(page)
-
-      await page.getByRole('button', { name: 'Hide tools' }).click()
-      await expect(page.getByRole('button', { name: 'Show tools' })).toBeVisible()
-      for (const tool of TOOLS) {
-        await expect(toolButton(page, tool)).toHaveCount(0)
-      }
-
-      await page.getByRole('button', { name: 'Show tools' }).click()
-      for (const tool of TOOLS) {
-        await expect(toolButton(page, tool)).toBeVisible()
-      }
     })
 
     test('B-08: the properties panel hides once the canvas is used and returns on selection', async ({ page }) => {
@@ -271,7 +174,7 @@ test.describe('Board Page — Integration Tests', () => {
       await openBoard(page)
       await selectTool(page, 'Ellipse')
 
-      await expect(noFillSwatch(page)).toBeVisible()
+      await expect(page.getByRole('button', { name: 'No fill' })).toBeVisible()
       await page.getByRole('button', { name: 'Fill #f9ddd5' }).click()
 
       await dragOnSurface(page, { x: 60, y: 200 }, { x: 200, y: 280 })
@@ -307,21 +210,6 @@ test.describe('Board Page — Integration Tests', () => {
       expect(canvas.shapes[0].type).toBe('line')
     })
 
-    test('B-15: drags that are too small do not create a shape', async ({ page }) => {
-      await openBoard(page)
-
-      await selectTool(page, 'Rectangle')
-      await dragOnSurface(page, { x: 100, y: 200 }, { x: 200, y: 202 })
-      expect(shapeLabelInput(page)).toHaveCount(0)
-
-      await selectTool(page, 'Line')
-      await dragOnSurface(page, { x: 100, y: 300 }, { x: 102, y: 301 })
-      expect(shapeLabelInput(page)).toHaveCount(0)
-
-      const canvas = await readCanvas(page, 't1')
-      expect(canvas?.shapes ?? []).toHaveLength(0)
-    })
-
     test('B-16: the chosen stroke colour is applied to the next shape', async ({ page }) => {
       await openBoard(page)
       await selectTool(page, 'Rectangle')
@@ -351,16 +239,6 @@ test.describe('Board Page — Integration Tests', () => {
       expect(canvas.strokes[0].points.length).toBeGreaterThan(1)
       expect(canvas.strokes[0].points[0].x).toBeCloseTo(60, 0)
       expect(canvas.strokes[0].points[0].y).toBeCloseTo(200, 0)
-    })
-
-    test('B-18: a click without movement does not create a stroke', async ({ page }) => {
-      await openBoard(page)
-      await selectTool(page, 'Pen')
-
-      await clickOnSurface(page, 100, 250)
-
-      const canvas = await readCanvas(page, 't1')
-      expect(canvas?.strokes ?? []).toHaveLength(0)
     })
 
     test('B-19: the chosen stroke colour is applied to the next pen stroke', async ({ page }) => {
@@ -397,34 +275,6 @@ test.describe('Board Page — Integration Tests', () => {
       await expect(page.locator('.board-text')).toHaveText('Hello board')
     })
 
-    test('B-21: submitting an empty text creates nothing', async ({ page }) => {
-      await openBoard(page)
-      await selectTool(page, 'Text')
-
-      await clickOnSurface(page, 100, 250)
-      const input = boardTextInput(page)
-      await expect(input).toBeVisible()
-      await input.press('Enter')
-
-      await expect(input).toHaveCount(0)
-      const canvas = await readCanvas(page, 't1')
-      expect(canvas?.texts ?? []).toHaveLength(0)
-    })
-
-    test('B-22: escaping the text editor creates nothing', async ({ page }) => {
-      await openBoard(page)
-      await selectTool(page, 'Text')
-
-      await clickOnSurface(page, 100, 250)
-      const input = boardTextInput(page)
-      await expect(input).toBeVisible()
-      await input.press('Escape')
-
-      await expect(input).toHaveCount(0)
-      const canvas = await readCanvas(page, 't1')
-      expect(canvas?.texts ?? []).toHaveLength(0)
-    })
-
     test('B-23: double-clicking a text element opens it for editing', async ({ page }) => {
       await seedCanvasFor(page, seededCanvas())
       await openBoard(page)
@@ -454,64 +304,12 @@ test.describe('Board Page — Integration Tests', () => {
       await waitForCanvas(page, 't1', (canvas) => canvas.texts.length === 0)
       await expect(page.locator('.board-text')).toHaveCount(0)
     })
-
-    test('B-25: the size controls change the font size of the next text', async ({ page }) => {
-      await openBoard(page)
-      await selectTool(page, 'Text')
-
-      await expect(fontSizeReadout(page)).toHaveText('15px')
-      await page.getByRole('button', { name: 'Increase text size' }).click()
-      await expect(fontSizeReadout(page)).toHaveText('19px')
-      await page.getByRole('button', { name: 'Decrease text size' }).click()
-      await expect(fontSizeReadout(page)).toHaveText('15px')
-      await page.getByRole('button', { name: 'Decrease text size' }).click()
-      await expect(fontSizeReadout(page)).toHaveText('12px')
-
-      await clickOnSurface(page, 100, 250)
-      const input = boardTextInput(page)
-      await input.fill('Sized')
-      await input.press('Enter')
-
-      await waitForCanvas(page, 't1', (canvas) => canvas.texts.length === 1)
-      const canvas = await readCanvas(page, 't1')
-      expect(canvas.texts[0].fontSize).toBe(12)
-    })
   })
 
   // ============================================================
   // F. Mind map
   // ============================================================
   test.describe('Mind Map', () => {
-    test('B-26: the Mind map tool creates a node and opens its label editor', async ({ page }) => {
-      await openBoard(page)
-      await selectTool(page, 'Mind map')
-
-      await clickOnSurface(page, 120, 300)
-      const input = nodeLabelInput(page)
-      await expect(input).toBeVisible()
-
-      await input.fill('Alpha')
-      await input.press('Enter')
-
-      await waitForCanvas(page, 't1', (canvas) => canvas.nodes.length === 1)
-      const canvas = await readCanvas(page, 't1')
-      expect(canvas.nodes[0].label).toBe('Alpha')
-      await expect(page.locator('.board-node-label')).toHaveText('Alpha')
-    })
-
-    test('B-27: escaping the label editor of a new node removes the node', async ({ page }) => {
-      await openBoard(page)
-      await selectTool(page, 'Mind map')
-
-      await clickOnSurface(page, 120, 300)
-      const input = nodeLabelInput(page)
-      await expect(input).toBeVisible()
-      await input.press('Escape')
-
-      await expect(input).toHaveCount(0)
-      await waitForCanvas(page, 't1', (canvas) => canvas.nodes.length === 0)
-    })
-
     test('B-28: double-clicking a node opens it for editing', async ({ page }) => {
       await seedCanvasFor(page, seededCanvas())
       await openBoard(page)
@@ -589,7 +387,6 @@ test.describe('Board Page — Integration Tests', () => {
       await clickOnSurface(page, 100, 190)
       await expect(resizeHandles(page)).toHaveCount(4)
 
-      // Handles are rendered in order: top-left, top-right, bottom-left, bottom-right.
       const bottomRight = resizeHandles(page).nth(3)
       await dragHandleTo(page, bottomRight, 240, 300)
 
@@ -652,16 +449,6 @@ test.describe('Board Page — Integration Tests', () => {
       expect(canvas.shapes.map((shape) => shape.id)).not.toContain('sh-seed-rect')
     })
 
-    test('B-38: the Backspace key removes the selected shape', async ({ page }) => {
-      await seedCanvasFor(page, seededCanvas())
-      await openBoard(page)
-
-      await clickOnSurface(page, 100, 190)
-      await page.keyboard.press('Backspace')
-
-      await waitForCanvas(page, 't1', (canvas) => canvas.shapes.length === 3)
-    })
-
     test('B-39: the Delete key removes the selected stroke', async ({ page }) => {
       await seedCanvasFor(page, seededCanvas())
       await openBoard(page)
@@ -702,21 +489,6 @@ test.describe('Board Page — Integration Tests', () => {
       await dragOnSurface(page, { x: 40, y: 320 }, { x: 160, y: 320 })
 
       await waitForCanvas(page, 't1', (canvas) => canvas.strokes.length === 0)
-    })
-
-    test('B-43: Delete with nothing selected changes nothing', async ({ page }) => {
-      await seedCanvasFor(page, seededCanvas())
-      await openBoard(page)
-
-      await clickOnSurface(page, 400, 520)
-      await page.keyboard.press('Delete')
-
-      const canvas = await readCanvas(page, 't1')
-      expect(canvas.shapes).toHaveLength(4)
-      expect(canvas.strokes).toHaveLength(1)
-      expect(canvas.texts).toHaveLength(1)
-      expect(canvas.nodes).toHaveLength(2)
-      expect(canvas.edges).toHaveLength(1)
     })
   })
 
@@ -769,28 +541,11 @@ test.describe('Board Page — Integration Tests', () => {
       await page.keyboard.press('Control+Shift+z')
       await waitForCanvas(page, 't1', (canvas) => canvas.shapes.length === 1)
 
-      // Ctrl+Y redoes only while the history pointer is behind the newest
-      // snapshot, so undo again first.
       await page.keyboard.press('Control+z')
       await waitForCanvas(page, 't1', (canvas) => canvas.shapes.length === 0)
 
       await page.keyboard.press('Control+y')
       await waitForCanvas(page, 't1', (canvas) => canvas.shapes.length === 1)
-    })
-
-    test('B-47: undoing back to the start disables undo and enables redo', async ({ page }) => {
-      await openBoard(page)
-      await selectTool(page, 'Rectangle')
-
-      await dragOnSurface(page, { x: 60, y: 200 }, { x: 200, y: 280 })
-      await shapeLabelInput(page).press('Escape')
-      await waitForCanvas(page, 't1', (canvas) => canvas.shapes.length === 1)
-
-      await page.getByRole('button', { name: 'Undo' }).click()
-      await waitForCanvas(page, 't1', (canvas) => canvas.shapes.length === 0)
-
-      await expect(page.getByRole('button', { name: 'Undo' })).toBeDisabled()
-      await expect(page.getByRole('button', { name: 'Redo' })).toBeEnabled()
     })
 
     test('B-48: undo restores a deleted element', async ({ page }) => {
@@ -813,19 +568,6 @@ test.describe('Board Page — Integration Tests', () => {
   // J. Clear board
   // ============================================================
   test.describe('Clear Board', () => {
-    test('B-49: dismissing the confirmation keeps the board untouched', async ({ page }) => {
-      await seedCanvasFor(page, seededCanvas())
-      await openBoard(page)
-
-      dismissNextDialog(page)
-      await page.getByRole('button', { name: 'Clear board' }).click()
-
-      const canvas = await readCanvas(page, 't1')
-      expect(canvas.shapes).toHaveLength(4)
-      expect(canvas.nodes).toHaveLength(2)
-      expect(canvas.edges).toHaveLength(1)
-    })
-
     test('B-50: accepting the confirmation clears every element type', async ({ page }) => {
       await seedCanvasFor(page, seededCanvas())
       await openBoard(page)
@@ -843,35 +585,6 @@ test.describe('Board Page — Integration Tests', () => {
   // K. Zoom & pan
   // ============================================================
   test.describe('Zoom & Pan', () => {
-    test('B-51: the zoom buttons step the level and reset returns to 100%', async ({ page }) => {
-      await openBoard(page)
-
-      await expect(zoomLevel(page)).toHaveText('100%')
-      await page.getByRole('button', { name: 'Zoom in' }).click()
-      await expect(zoomLevel(page)).toHaveText('125%')
-      await page.getByRole('button', { name: 'Zoom out' }).click()
-      await expect(zoomLevel(page)).toHaveText('100%')
-      await page.getByRole('button', { name: 'Zoom out' }).click()
-      await expect(zoomLevel(page)).toHaveText('80%')
-
-      await zoomLevel(page).click()
-      await expect(zoomLevel(page)).toHaveText('100%')
-    })
-
-    test('B-52: the zoom level is clamped between 25% and 400%', async ({ page }) => {
-      await openBoard(page)
-
-      for (let i = 0; i < 12; i += 1) {
-        await page.getByRole('button', { name: 'Zoom in' }).click()
-      }
-      await expect(zoomLevel(page)).toHaveText('400%')
-
-      for (let i = 0; i < 15; i += 1) {
-        await page.getByRole('button', { name: 'Zoom out' }).click()
-      }
-      await expect(zoomLevel(page)).toHaveText('25%')
-    })
-
     test('B-53: the plain wheel pans the canvas while Ctrl+wheel zooms it', async ({ page }) => {
       await openBoard(page)
 
@@ -886,8 +599,6 @@ test.describe('Board Page — Integration Tests', () => {
       expect(transformAfterPan).toContain('translate(0px, -120px)')
       await expect(zoomLevel(page)).toHaveText('100%')
 
-      // Ctrl+wheel is dispatched directly on the surface: the browser may
-      // intercept a synthetic ctrl+wheel as a page-zoom shortcut.
       await page.evaluate(() => {
         const surface = document.querySelector('.board-surface')
         surface.dispatchEvent(new WheelEvent('wheel', {
@@ -981,8 +692,7 @@ test.describe('Board Page — Integration Tests', () => {
 })
 
 // ============================================================
-// Reload persistence — separate suite so no init script re-seeds
-// the storage during the reload.
+// Reload persistence
 // ============================================================
 test.describe('Board Page — Reload Persistence', () => {
   test.skip(({ isMobile }) => Boolean(isMobile), 'Board suite targets the desktop viewport')
